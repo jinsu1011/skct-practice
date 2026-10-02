@@ -43,7 +43,7 @@
 
         <div class="src-pane" data-pane="url" hidden>
           <input type="text" id="url-input" class="text-input" placeholder="https://linkareer.com/...  (공통 문제 페이지 주소)">
-          <p class="hint">영역별로 주소가 다르면 아래 표의 <b>주소</b> 칸에 각각 입력하세요. 사이트가 시험 화면 안에 표시되지 않으면 시험 중 <b>[새 창으로 열기]</b>를 누르세요.</p>
+          <p class="hint">영역별로 주소가 다르면 아래 표의 <b>주소</b> 칸에 각각 입력하세요. 시험 화면 안에서는 <b>로그인이 되지 않습니다</b>(브라우저 보안 정책). 로그인이 필요한 사이트는 시험 중 <b>[새 창으로 열기]</b>로 연 창에서 로그인하세요.</p>
         </div>
 
         <div class="src-pane" data-pane="none" hidden>
@@ -85,7 +85,9 @@
     <header class="topbar">
       <div class="tb-left">SKCT 연습</div>
       <div class="tb-center"><span class="tl-label">검사 시작까지</span><span class="tl-time" id="wait-timer">01:00</span></div>
-      <div class="tb-right"></div>
+      <div class="tb-right">
+        <button type="button" class="tb-btn js-home">처음으로</button>
+      </div>
     </header>
     <main class="wait">
       <h1>잠시 후 검사가 시작됩니다</h1>
@@ -112,6 +114,7 @@
       <div class="tb-right">
         <button type="button" id="btn-pause" class="tb-btn">일시정지</button>
         <button type="button" id="btn-reset" class="tb-btn">시간 초기화</button>
+        <button type="button" class="tb-btn js-home">처음으로</button>
       </div>
     </header>
     <div class="progress" id="progress" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
@@ -136,7 +139,7 @@
               <div class="vb-group" data-for="url">
                 <button type="button" id="url-reload">새로고침</button>
                 <button type="button" id="url-popup">새 창으로 열기</button>
-                <span class="vb-text muted">화면이 비어 있으면 [새 창으로 열기]를 누르세요.</span>
+                <span class="vb-text muted">로그인이 필요하거나 화면이 비어 있으면 [새 창으로 열기]를 누르세요.</span>
               </div>
             </div>
             <div class="stage" id="stage"></div>

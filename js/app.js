@@ -166,8 +166,28 @@
     $('#exam-timer-label').textContent = T.paused ? '일시정지' : '남은 시간';
   }
 
+  $$('.js-home').forEach((b) => b.addEventListener('click', goHome));
   $('#btn-pause').addEventListener('click', togglePause);
   $('#btn-reset').addEventListener('click', resetTimer);
+
+  async function goHome() {
+    const ok = await modal({
+      title: '처음 화면으로',
+      body: '<p>시험을 중단하고 처음 화면으로 돌아가시겠습니까?</p><p class="red">지금까지 선택한 답안은 저장되지 않습니다.</p>',
+      buttons: [{ label: '취소', value: false }, { label: '처음으로', value: true, primary: true }],
+    });
+    if (!ok) return;
+    stopCountdown();
+    T.onDone = null;
+    T.paused = false;
+    paintPause();
+    S.phase = 'setup';
+    $('#progress-fill').style.width = '0';
+    $('#exam-timer').classList.remove('warn', 'paused');
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    $('#btn-last').hidden = !store.get('skct-last-result');
+    showScreen('setup');
+  }
 
   // ---------- ① 설정 ----------
   function setMode(m) {
