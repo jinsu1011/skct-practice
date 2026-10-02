@@ -64,6 +64,10 @@ create table if not exists public.records (
   source      text
 );
 
+-- Slack 로그인 계정 연결 (Supabase Auth 사용자 id)
+alter table public.users add column if not exists auth_id uuid unique;
+alter table public.users add column if not exists email text;
+
 create table if not exists public.app_settings (
   key         text primary key,
   value       text not null
@@ -86,6 +90,7 @@ revoke all on public.users, public.sessions, public.login_logs, public.visits, p
 -- 예전 버전 함수 정리 (인자가 바뀐 함수)
 drop function if exists public.signup(text, text, text, text, int, text);
 drop function if exists public.save_attempt(uuid, jsonb, text);
+drop function if exists public.delete_account(uuid, text);   -- 회원 탈퇴는 제공하지 않음 (관리자가 삭제)
 
 -- ---------- 내부 함수 ----------
 create or replace function public._uid(p_token uuid)
@@ -112,7 +117,9 @@ end $$;
 create or replace function public._profile(p_uid uuid)
 returns json language sql security definer set search_path = public as $$
   select json_build_object('id', id, 'username', username, 'name', name, 'campus', campus,
-                           'class_no', class_no, 'is_admin', is_admin, 'created_at', created_at)
+                           'class_no', class_no, 'is_admin', is_admin, 'created_at', created_at,
+                           'provider', case when auth_id is null then 'password' else 'slack' end,
+                           'email', email)
   from users where id = p_uid;
 $$;
 
@@ -137,6 +144,9 @@ begin
   p_name := trim(p_name);
   if p_username !~ '^[a-z0-9_]{4,20}$' then
     raise exception '아이디는 영문 소문자·숫자·_ 4~20자로 입력해 주세요.';
+  end if;
+  if p_username like 'slack\_%' then
+    raise exception 'slack_으로 시작하는 아이디는 사용할 수 없습니다.';
   end if;
   if coalesce(char_length(p_password), 0) < 6 then
     raise exception '비밀번호는 6자 이상이어야 합니다.';
@@ -184,6 +194,57 @@ begin
   return json_build_object('token', t, 'user', _profile(u.id));
 end $$;
 
+-- ---------- Slack 로그인 ----------
+-- 브라우저가 Slack 로그인 후 받은 Supabase 토큰(JWT)으로 호출한다. auth.uid()로 Slack 사용자를 확인.
+-- 처음 온 사용자면 needs_profile을 돌려주고, 캠퍼스·반·이름을 받아 slack_signup으로 가입시킨다.
+create or replace function public.slack_login(p_ua text default null)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare a uuid := auth.uid(); u users; t uuid; meta jsonb;
+begin
+  if a is null then
+    raise exception 'Slack 로그인 정보가 없습니다. 다시 시도해 주세요.';
+  end if;
+  select * into u from users where auth_id = a;
+  if u.id is null then
+    select raw_user_meta_data into meta from auth.users where id = a;
+    return json_build_object('needs_profile', true,
+                             'name', coalesce(meta->>'name', meta->>'full_name', ''),
+                             'email', coalesce(meta->>'email', ''));
+  end if;
+  insert into sessions (user_id) values (u.id) returning token into t;
+  insert into login_logs (user_id, username, kind, user_agent) values (u.id, u.username, 'login', left(p_ua, 300));
+  update users set last_seen = now() where id = u.id;
+  return json_build_object('token', t, 'user', _profile(u.id));
+end $$;
+
+create or replace function public.slack_signup(p_name text, p_campus text, p_class int, p_ua text default null)
+returns json language plpgsql security definer set search_path = public, extensions as $$
+declare a uuid := auth.uid(); v uuid; t uuid; mail text; uname text;
+begin
+  if a is null then
+    raise exception 'Slack 로그인 정보가 없습니다. 다시 시도해 주세요.';
+  end if;
+  if exists (select 1 from users where auth_id = a) then
+    raise exception '이미 가입된 Slack 계정입니다. 다시 로그인해 주세요.';
+  end if;
+  p_name := trim(p_name);
+  if char_length(p_name) not between 1 and 20 then
+    raise exception '이름을 1~20자로 입력해 주세요.';
+  end if;
+  if p_campus not in ('광주', '울산', '판교') or p_class not between 1 and 10 then
+    raise exception '캠퍼스와 반을 선택해 주세요.';
+  end if;
+  select email into mail from auth.users where id = a;
+  uname := 'slack_' || substr(replace(a::text, '-', ''), 1, 10);   -- 화면에서 쓰지 않는 내부 아이디
+
+  insert into users (username, pw_hash, name, campus, class_no, auth_id, email, last_seen)
+  values (uname, crypt(gen_random_uuid()::text, gen_salt('bf')), p_name, p_campus, p_class, a, mail, now())
+  returning id into v;
+  insert into sessions (user_id) values (v) returning token into t;
+  insert into login_logs (user_id, username, kind, user_agent) values (v, uname, 'signup', left(p_ua, 300));
+  return json_build_object('token', t, 'user', _profile(v));
+end $$;
+
 create or replace function public.me(p_token uuid)
 returns json language plpgsql security definer set search_path = public as $$
 declare v uuid := _uid(p_token);
@@ -214,19 +275,6 @@ begin
     raise exception '비밀번호는 6자 이상이어야 합니다.';
   end if;
   update users set pw_hash = crypt(p_new, gen_salt('bf')) where id = v;
-end $$;
-
-create or replace function public.delete_account(p_token uuid, p_password text)
-returns void language plpgsql security definer set search_path = public, extensions as $$
-declare v uuid := _uid(p_token);
-begin
-  if not exists (select 1 from users where id = v and pw_hash = crypt(p_password, pw_hash)) then
-    raise exception '비밀번호가 올바르지 않습니다.';
-  end if;
-  if exists (select 1 from users where id = v and is_admin) then
-    raise exception '관리자 계정은 탈퇴할 수 없습니다.';
-  end if;
-  delete from users where id = v;   -- 기록·접속·세션은 함께 삭제됨
 end $$;
 
 -- ---------- 접속 시간 ----------
@@ -332,7 +380,8 @@ begin
   perform _admin(p_token);
   return coalesce((
     select json_agg(x order by x.campus nulls first, x.class_no, x.name) from (
-      select u.id, u.username, u.name, u.campus, u.class_no, u.is_admin, u.created_at, u.last_seen,
+      select u.id, u.username, u.name, u.campus, u.class_no, u.is_admin, u.created_at, u.last_seen, u.email,
+             case when u.auth_id is null then 'password' else 'slack' end as provider,
              coalesce((select sum(seconds) from visits v where v.user_id = u.id), 0) as visit_sec,
              (select count(*) from login_logs l where l.user_id = u.id and l.kind in ('login', 'signup')) as login_count
         from users u
@@ -412,7 +461,8 @@ revoke execute on all functions in schema public from public, anon, authenticate
 grant execute on function
   public.signup_info(),
   public.signup(text, text, text, text, int, text, text),
-  public.delete_account(uuid, text),
+  public.slack_login(text),
+  public.slack_signup(text, text, int, text),
   public.login(text, text, text),
   public.me(uuid),
   public.logout(uuid),

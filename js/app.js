@@ -695,7 +695,9 @@
     const u = Account.user;
     showScreen('stats');
     $('#stats-title').textContent = `${u.name}님의 학습 현황`;
-    $('#stats-sub').textContent = u.is_admin ? '관리자 계정' : `${u.campus} ${u.class_no}반 · 아이디 ${u.username}`;
+    const via = u.provider === 'slack' ? `Slack 로그인${u.email ? ` (${u.email})` : ''}` : `아이디 ${u.username}`;
+    $('#stats-sub').textContent = u.is_admin ? '관리자 계정' : `${u.campus} ${u.class_no}반 · ${via}`;
+    $('#btn-change-pw').hidden = u.provider === 'slack';
     $('#stats-body').innerHTML = '<p class="empty">불러오는 중…</p>';
     try {
       S.my = await Api.myData();
@@ -760,24 +762,6 @@
       toast('비밀번호를 변경했습니다.');
     } catch (err) {
       if (!Account.handleError(err)) alertModal('변경 실패', `<p>${esc(err.message)}</p>`);
-    }
-  });
-
-  $('#btn-delete-account').addEventListener('click', async () => {
-    const pw = await modal({
-      title: '회원 탈퇴',
-      body: `<p>탈퇴하면 계정과 <b>모든 응시·채점 기록이 즉시 삭제</b>되며 되돌릴 수 없습니다.</p>
-             <label class="field">비밀번호 확인<input type="password" id="del-pw" class="text-input" autocomplete="current-password"></label>`,
-      buttons: [{ label: '취소', value: null }, { label: '탈퇴하기', value: () => $('#del-pw').value, primary: true }],
-    });
-    if (!pw) return;
-    try {
-      await Api.deleteAccount(pw);
-      store.remove('skct-last-result');
-      store.remove(PENDING);
-      Account.requireLogin('탈퇴가 완료되었습니다.');
-    } catch (err) {
-      if (!Account.handleError(err)) alertModal('탈퇴 실패', `<p>${esc(err.message)}</p>`);
     }
   });
 
@@ -851,7 +835,20 @@
   });
 
   // ---------- 시작 ----------
-  let imported = readImport();
+  // 가져온 기록은 로그인(특히 Slack으로 페이지를 떠났다 오는 경우) 뒤에 처리하도록 잠시 보관
+  const IMPORT_KEY = 'skct-import';
+  const keepImport = (r) => { try { sessionStorage.setItem(IMPORT_KEY, JSON.stringify(r)); } catch { /* 저장 불가 */ } };
+  const takeImport = () => {
+    try {
+      const r = JSON.parse(sessionStorage.getItem(IMPORT_KEY));
+      sessionStorage.removeItem(IMPORT_KEY);
+      return r;
+    } catch {
+      return null;
+    }
+  };
+  const firstImport = readImport();
+  if (firstImport) keepImport(firstImport);
   Viewer.init();
   Sketch.init($('#draw'));
   Calc.init($('#calc'));
@@ -863,11 +860,8 @@
   Account.init(async () => {
     refreshLastButton();
     await flushPending();
-    if (imported) {
-      const r = imported;
-      imported = null;
-      receiveImport(r);
-    }
+    const r = takeImport();
+    if (r) receiveImport(r);
   });
 
   // 이미 열려 있는 탭으로 기록이 넘어온 경우
@@ -875,6 +869,6 @@
     const r = readImport();
     if (!r) return;
     if (Account.online || !Api.enabled) receiveImport(r);
-    else imported = r;
+    else keepImport(r);
   });
 })();

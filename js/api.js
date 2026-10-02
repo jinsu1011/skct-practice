@@ -17,9 +17,11 @@ window.Api = (() => {
     } catch { /* 저장 불가 환경 */ }
   }
 
-  async function rpc(fn, args = {}) {
+  // bearer: Slack 로그인 직후 받은 Supabase 사용자 토큰(JWT). 없으면 공개 키로만 호출
+  async function rpc(fn, args = {}, bearer = null) {
     const headers = { apikey: key, 'Content-Type': 'application/json' };
-    if (key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`; // 예전 형식(JWT) anon 키
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
+    else if (key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`; // 예전 형식(JWT) anon 키
     let res;
     try {
       res = await fetch(`${base}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(args) });
@@ -54,6 +56,33 @@ window.Api = (() => {
     return r.user;
   }
 
+  // ---------- Slack 로그인 (Supabase Auth의 Slack OIDC) ----------
+  async function slackEnabled() {
+    try {
+      const res = await fetch(`${base}/auth/v1/settings`, { headers: { apikey: key } });
+      const data = await res.json();
+      return !!data?.external?.slack_oidc;
+    } catch {
+      return false;
+    }
+  }
+
+  const slackAuthorizeUrl = (redirectTo) => `${base}/auth/v1/authorize?provider=slack_oidc&redirect_to=${encodeURIComponent(redirectTo)}`;
+
+  // 가입된 사용자면 { user }, 처음이면 { needsProfile, name, email }
+  async function slackLogin(accessToken) {
+    const r = await rpc('slack_login', { p_ua: ua() }, accessToken);
+    if (r.needs_profile) return { needsProfile: true, name: r.name, email: r.email };
+    setToken(r.token);
+    return { user: r.user };
+  }
+
+  async function slackSignup(accessToken, { name, campus, classNo }) {
+    const r = await rpc('slack_signup', { p_name: name, p_campus: campus, p_class: classNo, p_ua: ua() }, accessToken);
+    setToken(r.token);
+    return r.user;
+  }
+
   async function logout() {
     try { if (token) await authed('logout'); } finally { setToken(null); }
   }
@@ -63,6 +92,10 @@ window.Api = (() => {
     hasToken: () => !!token,
     signup,
     login,
+    slackEnabled,
+    slackAuthorizeUrl,
+    slackLogin,
+    slackSignup,
     logout,
     clearToken: () => setToken(null),
     me: () => authed('me'),
@@ -74,7 +107,6 @@ window.Api = (() => {
       ...(external ? { p_external: true } : {}),
     }),
     signupInfo: () => rpc('signup_info').catch(() => ({ code_required: false })),
-    deleteAccount: (password) => authed('delete_account', { p_password: password }),
     grade: (id, answerKey) => authed('grade_record', { p_id: id, p_key: answerKey }),
     deleteAttempt: (attemptId) => authed('delete_attempt', { p_attempt: attemptId }),
     myData: () => authed('my_data'),

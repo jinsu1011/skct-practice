@@ -29,17 +29,18 @@ SKCT(SK 종합역량검사) 온라인 시험 화면을 재현한 연습용 웹�
 
 ## 로그인 · 학습 현황 (SKALA)
 - **회원가입**: 캠퍼스(광주/울산/판교), 반(1~10반), 이름, 아이디, 비밀번호
+- **Slack 로그인**: Slack 계정으로 로그인 (처음 한 번만 캠퍼스·반·이름 입력)
 - **기록 저장**: 시험이 끝나면 답안·문항별 소요 시간이 자동 저장되고, `정답 입력`으로 채점하면 채점 결과도 저장됩니다.
 - **내 학습 현황**: 응시 횟수, 푼 문항, 정답률, 학습 시간, 접속 시간, 영역별 정답률(취약 영역), 날짜별 정답률 추이, 문항 번호별 오답률, 최근 14일 접속 시간, 응시 기록(다시 채점·삭제), CSV 내보내기
 - **관리자**: 학생 현황(정렬·캠퍼스/반 필터·검색), 반별 요약, 로그인 기록, 학생별 상세 현황, 비밀번호 초기화·계정 삭제, 가입 코드 설정, 학생 현황·전체 기록 CSV
-- **개인정보**: 가입 시 수집·이용 동의, `개인정보 처리 안내`, 회원 탈퇴(계정과 기록 즉시 삭제)
+- **개인정보**: 가입 시 수집·이용 동의, `개인정보 처리 안내`. 계정·기록 삭제는 관리자에게 요청
 
 ## 운영 가이드
 | 상황 | 방법 |
 |---|---|
 | 수강생만 가입시키기 | 관리자 → **설정** → 가입 코드 저장 후 수강생에게 공유 (비우면 누구나 가입) |
 | 학생이 비밀번호를 잊음 | 관리자 → 학생 클릭 → **비밀번호 초기화** |
-| 테스트·잘못 만든 계정 정리 | 관리자 → 학생 클릭 → **계정 삭제** |
+| 계정 삭제 요청·테스트 계정 정리 | 관리자 → 학생 클릭 → **계정 삭제** |
 | 데이터 분석 | 관리자 → **학생 현황 CSV / 전체 기록 CSV** (엑셀에서 바로 열림) |
 | DB 구조가 바뀐 업데이트 | Supabase SQL Editor에서 최신 `supabase/schema.sql`을 다시 Run (기존 데이터는 유지) |
 
@@ -51,6 +52,14 @@ SKCT(SK 종합역량검사) 온라인 시험 화면을 재현한 연습용 웹�
 2. **SQL Editor**에 [`supabase/schema.sql`](supabase/schema.sql) 전체를 붙여넣고 Run.
 3. 관리자 계정 SQL(`supabase/admin.sql`, 비밀번호가 들어 있어 저장소에는 올리지 않음)을 같은 방법으로 Run.
 4. **Project Settings → API**의 Project URL과 anon(publishable) 키를 [`js/config.js`](js/config.js)에 넣습니다.
+
+### Slack 로그인 켜기
+1. https://api.slack.com/apps → **Create New App → From scratch** (워크스페이스: SKALA)
+2. **OAuth & Permissions** → Redirect URLs에 `https://<프로젝트>.supabase.co/auth/v1/callback` 추가, **User Token Scopes**에 `openid`, `email`, `profile` 추가
+3. **Basic Information**의 Client ID / Client Secret을 Supabase → Authentication → Sign In / Providers → **Slack (OIDC)** 에 입력하고 Enable
+4. Supabase → Authentication → URL Configuration의 Site URL과 Redirect URLs에 사이트 주소 등록 (완료)
+
+Slack (OIDC)이 켜지면 로그인 화면에 **Slack으로 로그인** 버튼이 자동으로 나타납니다.
 
 `js/config.js`가 비어 있으면 로그인 없이 기록이 브라우저에만 저장되는 오프라인 모드로 동작합니다.
 무료 프로젝트는 7일 동안 접속이 없으면 일시 중지되며, Supabase 대시보드에서 다시 켤 수 있습니다.

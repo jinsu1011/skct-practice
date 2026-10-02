@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=10">
+  <link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
 
@@ -40,6 +40,37 @@
         <span class="auth-badge">SKALA</span>
         <h1>SKCT 실전 연습</h1>
         <p class="muted">로그인하면 응시 기록과 학습 현황이 저장됩니다.</p>
+        <div id="slack-box" hidden>
+          <a class="btn slack-btn" id="btn-slack" href="#">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="#E01E5A" d="M5.04 15.17a2.52 2.52 0 1 1-2.52-2.52h2.52zm1.27 0a2.52 2.52 0 0 1 5.04 0v6.31a2.52 2.52 0 1 1-5.04 0z"/><path fill="#36C5F0" d="M8.83 5.04a2.52 2.52 0 1 1 2.52-2.52v2.52zm0 1.27a2.52 2.52 0 0 1 0 5.04H2.52a2.52 2.52 0 0 1 0-5.04z"/><path fill="#2EB67D" d="M18.96 8.83a2.52 2.52 0 1 1 2.52 2.52h-2.52zm-1.27 0a2.52 2.52 0 0 1-5.04 0V2.52a2.52 2.52 0 1 1 5.04 0z"/><path fill="#ECB22E" d="M15.17 18.96a2.52 2.52 0 1 1-2.52 2.52v-2.52zm0-1.27a2.52 2.52 0 0 1 0-5.04h6.31a2.52 2.52 0 1 1 0 5.04z"/></svg>
+            Slack으로 로그인
+          </a>
+          <div class="or"><span>또는 아이디로</span></div>
+        </div>
+        <form id="form-slack" class="auth-form" novalidate hidden>
+          <p class="slack-welcome">Slack 계정으로 처음 오셨네요. 캠퍼스·반·이름을 확인해 주세요.</p>
+          <div class="row2">
+            <label>캠퍼스
+              <select name="campus" required>
+                <option value="">선택</option><option>광주</option><option>울산</option><option>판교</option>
+              </select>
+            </label>
+            <label>반
+              <select name="classNo" required>
+                <option value="">선택</option>
+                <option value="1">1반</option><option value="2">2반</option><option value="3">3반</option>
+                <option value="4">4반</option><option value="5">5반</option><option value="6">6반</option>
+                <option value="7">7반</option><option value="8">8반</option><option value="9">9반</option>
+                <option value="10">10반</option>
+              </select>
+            </label>
+          </div>
+          <label>이름<input name="name" maxlength="20" autocomplete="name" required></label>
+          <label class="agree"><input type="checkbox" name="agree"> <span>개인정보 수집·이용에 동의합니다. <button type="button" class="link js-privacy">내용 보기</button></span></label>
+          <p class="form-err" hidden></p>
+          <button class="btn primary lg" type="submit">가입하고 시작하기</button>
+          <button class="btn" type="button" id="btn-slack-cancel">취소</button>
+        </form>
         <div class="seg auth-tabs" id="auth-tabs">
           <button type="button" data-tab="login" class="on">로그인</button>
           <button type="button" data-tab="signup">회원가입</button>
@@ -322,7 +353,6 @@
         <div class="dash-actions">
           <button type="button" id="btn-stats-csv" class="btn">내 기록 CSV</button>
           <button type="button" id="btn-change-pw" class="btn">비밀번호 변경</button>
-          <button type="button" id="btn-delete-account" class="btn ghost">회원 탈퇴</button>
         </div>
       </div>
       <div id="stats-body"></div>
@@ -396,16 +426,16 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="js/config.js?v=10"></script>
-  <script src="js/api.js?v=10"></script>
-  <script src="js/ui.js?v=10"></script>
-  <script src="js/samples.js?v=10"></script>
-  <script src="js/viewer.js?v=10"></script>
-  <script src="js/sketch.js?v=10"></script>
-  <script src="js/calc.js?v=10"></script>
-  <script src="js/stats.js?v=10"></script>
-  <script src="js/account.js?v=10"></script>
-  <script src="js/admin.js?v=10"></script>
-  <script src="js/app.js?v=10"></script>
+  <script src="js/config.js?v=11"></script>
+  <script src="js/api.js?v=11"></script>
+  <script src="js/ui.js?v=11"></script>
+  <script src="js/samples.js?v=11"></script>
+  <script src="js/viewer.js?v=11"></script>
+  <script src="js/sketch.js?v=11"></script>
+  <script src="js/calc.js?v=11"></script>
+  <script src="js/stats.js?v=11"></script>
+  <script src="js/account.js?v=11"></script>
+  <script src="js/admin.js?v=11"></script>
+  <script src="js/app.js?v=11"></script>
 </body>
 </html>

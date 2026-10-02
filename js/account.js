@@ -5,6 +5,7 @@ window.Account = (() => {
 
   let user = null;
   let afterLogin = () => {};
+  let slackToken = null;   // Slack 로그인 직후 받은 임시 토큰 (처음 가입할 때만 사용)
 
   // ---------- 로그인 화면 ----------
   function setAuthTab(tab) {
@@ -12,6 +13,9 @@ window.Account = (() => {
     $$('#auth-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
     $('#form-login').hidden = tab !== 'login';
     $('#form-signup').hidden = tab !== 'signup';
+    $('#form-slack').hidden = true;
+    $('#auth-tabs').hidden = false;
+    $('#slack-box').hidden = !slackOn;
     $$('.form-err').forEach((e) => { e.hidden = true; });
     const first = $(`#form-${tab} select, #form-${tab} input`);
     if (first) first.focus();
@@ -69,6 +73,80 @@ window.Account = (() => {
     }));
   });
 
+  // ---------- Slack 로그인 ----------
+  let slackOn = false;
+
+  async function loadSlack() {
+    slackOn = await Api.slackEnabled();
+    if (!$('#form-slack').hidden) return;
+    $('#slack-box').hidden = !slackOn;
+  }
+
+  $('#btn-slack').addEventListener('click', (e) => {
+    e.preventDefault();
+    location.href = Api.slackAuthorizeUrl(location.origin + location.pathname);
+  });
+
+  // Slack에서 돌아왔을 때 주소 뒤(#)에 붙은 토큰 또는 오류를 읽는다
+  function readSlackReturn() {
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (!h.has('access_token') && !h.has('error')) return null;
+    history.replaceState(null, '', location.pathname + location.search);
+    if (h.has('error')) return { error: h.get('error_description') || h.get('error') };
+    return { token: h.get('access_token') };
+  }
+
+  function showSlackProfile(info) {
+    const f = $('#form-slack');
+    f.reset();
+    f.name.value = info.name || '';
+    $('.slack-welcome', f).textContent = `${info.email ? `${info.email} ` : ''}Slack 계정으로 처음 오셨네요. 캠퍼스·반·이름을 확인해 주세요.`;
+    $('#form-login').hidden = true;
+    $('#form-signup').hidden = true;
+    $('#auth-tabs').hidden = true;
+    $('#slack-box').hidden = true;
+    f.hidden = false;
+    $('.form-err', f).hidden = true;
+    showScreen('login');
+  }
+
+  async function finishSlack(ret) {
+    if (ret.error) {
+      requireLogin(`Slack 로그인이 취소되었거나 실패했습니다. (${ret.error})`);
+      return;
+    }
+    try {
+      const r = await Api.slackLogin(ret.token);
+      if (r.needsProfile) {
+        slackToken = ret.token;
+        showSlackProfile(r);
+        return;
+      }
+      user = r.user;
+      onLoggedIn();
+    } catch (err) {
+      requireLogin(err.message);
+    }
+  }
+
+  $('#form-slack').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (!f.campus.value || !f.classNo.value) return showError(f, '캠퍼스와 반을 선택해 주세요.');
+    if (!f.name.value.trim()) return showError(f, '이름을 입력해 주세요.');
+    if (!f.agree.checked) return showError(f, '개인정보 수집·이용에 동의해 주세요.');
+    submit(f, async () => {
+      const u = await Api.slackSignup(slackToken, { name: f.name.value.trim(), campus: f.campus.value, classNo: Number(f.classNo.value) });
+      slackToken = null;
+      return u;
+    });
+  });
+
+  $('#btn-slack-cancel').addEventListener('click', () => {
+    slackToken = null;
+    setAuthTab('login');
+  });
+
   // ---------- 가입 코드 · 개인정보 안내 ----------
   let codeRequired = false;
 
@@ -79,10 +157,10 @@ window.Account = (() => {
   }
 
   const PRIVACY = `
-    <p><b>수집 항목</b><br>아이디, 이름, 캠퍼스·반, 비밀번호(복원할 수 없는 암호화 형태), 응시·채점 기록, 사이트 접속 시간, 로그인 기록(일시, 브라우저 종류)</p>
+    <p><b>수집 항목</b><br>아이디, 이름, 캠퍼스·반, 비밀번호(복원할 수 없는 암호화 형태), Slack으로 로그인한 경우 Slack 이메일, 응시·채점 기록, 사이트 접속 시간, 로그인 기록(일시, 브라우저 종류)</p>
     <p><b>이용 목적</b><br>본인 학습 현황 제공, SKALA 교육과정 운영(반별 학습 현황 확인)</p>
     <p><b>열람 범위</b><br>본인과 사이트 관리자(운영진)만 볼 수 있습니다. PDF 등 업로드한 문제 파일은 서버로 전송되지 않습니다.</p>
-    <p><b>보관 기간</b><br>회원 탈퇴 시 계정과 모든 기록을 즉시 삭제합니다. ‘내 학습 현황 → 회원 탈퇴’에서 직접 탈퇴할 수 있습니다.</p>`;
+    <p><b>보관·삭제</b><br>교육과정 운영 기간 동안 보관합니다. 계정과 기록 삭제를 원하면 운영진(관리자)에게 요청하세요. 요청 시 계정과 모든 기록을 즉시 삭제합니다.</p>`;
 
   document.addEventListener('click', (e) => {
     if (e.target.closest('.js-privacy')) alertModal('개인정보 처리 안내', PRIVACY);
@@ -152,7 +230,15 @@ window.Account = (() => {
   // ---------- 시작 ----------
   async function init(onReady) {
     afterLogin = onReady;
-    if (Api.enabled) loadSignupInfo();
+    if (Api.enabled) {
+      loadSignupInfo();
+      loadSlack();
+    }
+    const slackRet = Api.enabled ? readSlackReturn() : null;
+    if (slackRet) {
+      await finishSlack(slackRet);
+      return;
+    }
     if (!Api.enabled) {
       renderUserBar();
       showScreen('setup');

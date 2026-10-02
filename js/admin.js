@@ -29,7 +29,8 @@ window.Admin = (() => {
     const st = Stats.compute(recs);
     return {
       u, recs, st,
-      campus: u.campus || '', class_no: u.class_no || 0, name: u.name, username: u.username,
+      campus: u.campus || '', class_no: u.class_no || 0, name: u.name,
+      username: u.provider === 'slack' ? (u.email || 'Slack') : u.username,
       last_seen: u.last_seen || '', visit_sec: u.visit_sec, login_count: u.login_count,
       attempts: st.attempts, answered: st.answered, study_sec: st.studySec,
       acc: st.acc ?? -1, graded: st.graded, weak: st.weak?.name || '',
@@ -58,7 +59,7 @@ window.Admin = (() => {
   }
 
   const COLS = [
-    ['campus', '캠퍼스·반'], ['name', '이름'], ['username', '아이디'], ['last_seen', '최근 접속'],
+    ['campus', '캠퍼스·반'], ['name', '이름'], ['username', '아이디·이메일'], ['last_seen', '최근 접속'],
     ['visit_sec', '접속 시간'], ['login_count', '로그인'], ['attempts', '응시'], ['answered', '푼 문항'],
     ['study_sec', '학습 시간'], ['acc', '정답률'], ['weak', '취약 영역'],
   ];
@@ -71,7 +72,7 @@ window.Admin = (() => {
       <tbody>${sorted(rows).map((r) => `
         <tr data-user="${r.u.id}">
           <td>${esc(r.campus)} ${r.class_no}반</td>
-          <td><b>${esc(r.name)}</b></td>
+          <td><b>${esc(r.name)}</b>${r.u.provider === 'slack' ? ' <span class="tag-slack">Slack</span>' : ''}</td>
           <td class="muted">${esc(r.username)}</td>
           <td>${r.last_seen ? dateText(r.last_seen, true) : '-'}</td>
           <td>${duration(r.visit_sec)}</td>
@@ -201,7 +202,8 @@ window.Admin = (() => {
       A.detailUser = data.user;
       const u = data.user;
       $('#admin-user-title').textContent = `${u.campus || ''} ${u.class_no ? `${u.class_no}반` : ''} ${u.name}`.trim();
-      $('#admin-user-sub').textContent = `아이디 ${u.username} · 가입 ${dateText(u.created_at)}`;
+      $('#admin-user-sub').textContent = `${u.provider === 'slack' ? `Slack 로그인 ${u.email || ''}` : `아이디 ${u.username}`} · 가입 ${dateText(u.created_at)}`;
+      $('#btn-admin-reset-pw').hidden = u.provider === 'slack';
       Stats.renderDashboard($('#admin-user-body'), data, { readonly: true });
       A.detailData = data;
     } catch (err) {
@@ -231,10 +233,10 @@ window.Admin = (() => {
   function csvUsers() {
     const rows = sorted(filtered());
     downloadCsv(`SKCT_학생현황_${dateText(new Date().toISOString()).replace(/\./g, '')}.csv`, [
-      ['캠퍼스', '반', '이름', '아이디', '가입일', '최근 접속', '접속 시간(분)', '로그인 횟수', '응시 횟수', '영역 기록 수',
+      ['캠퍼스', '반', '이름', '아이디·이메일', '로그인 방식', '가입일', '최근 접속', '접속 시간(분)', '로그인 횟수', '응시 횟수', '영역 기록 수',
         '푼 문항', '학습 시간(분)', '채점 문항', '정답 수', '정답률', ...SECTIONS.map((s) => `${s} 정답률`), '취약 영역'],
       ...rows.map((r) => [
-        r.campus, r.class_no, r.name, r.username, dateText(r.u.created_at), r.last_seen ? dateText(r.last_seen, true) : '',
+        r.campus, r.class_no, r.name, r.username, r.u.provider === 'slack' ? 'Slack' : '아이디', dateText(r.u.created_at), r.last_seen ? dateText(r.last_seen, true) : '',
         Math.round(r.visit_sec / 60), r.login_count, r.attempts, r.st.records, r.answered, Math.round(r.study_sec / 60),
         r.graded, r.st.correct, r.st.acc == null ? '' : r.st.acc.toFixed(3),
         ...SECTIONS.map((s) => (r.st.bySection[s].acc == null ? '' : r.st.bySection[s].acc.toFixed(3))), r.weak,
@@ -246,10 +248,10 @@ window.Admin = (() => {
     const users = Object.fromEntries(A.users.map((u) => [u.id, u]));
     const recs = A.records.filter((r) => users[r.user_id]);
     downloadCsv(`SKCT_전체기록_${dateText(new Date().toISOString()).replace(/\./g, '')}.csv`, [
-      ['캠퍼스', '반', '이름', '아이디', ...Stats.recordCsvHeader],
+      ['캠퍼스', '반', '이름', '아이디·이메일', ...Stats.recordCsvHeader],
       ...recs.map((r) => {
         const u = users[r.user_id];
-        return [u.campus, u.class_no, u.name, u.username, ...Stats.recordCsvRow(r)];
+        return [u.campus, u.class_no, u.name, u.provider === 'slack' ? (u.email || 'Slack') : u.username, ...Stats.recordCsvRow(r)];
       }),
     ]);
   }
