@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '17';
+  const VERSION = '18';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -112,7 +112,7 @@
                     <button type="button" id="zoom-out" title="축소">−</button>
                     <span class="vb-text" id="zoom-info">100%</span>
                     <button type="button" id="zoom-in" title="확대">+</button>
-                    <button type="button" id="zoom-fit" class="on" title="문제 칸에 맞춰 자동 확대">화면 맞춤</button>
+                    <button type="button" id="zoom-fit" title="문제 칸에 맞춰 자동 확대">화면 맞춤</button>
                     <span class="vb-text muted" id="sync-state">문제 영역 안에서 스크롤·페이지 이동이 그대로 됩니다.</span>
                   </div>
                 </div>
@@ -286,7 +286,7 @@
     // 최상위 이동(프레임 탈출)만 막고 나머지는 원래 페이지처럼 동작
     f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads');
     f.src = pageUrl;
-    f.addEventListener('load', () => scheduleZoom(600));
+    f.addEventListener('load', () => { singleTries = 0; scheduleZoom(600); });
     $('#stage').append(f);
   }
 
@@ -357,23 +357,35 @@
   };
   const numberInput = (doc) => [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && visible(i));
 
-  // 번호 입력칸 오른쪽에 있는 '눌리는' 요소 → 다음(›). 버튼 태그가 아니라 아이콘(div+svg)이어도 찾는다
-  function findNextButton(doc) {
+  // 번호 입력칸 오른쪽에 같은 줄로 놓인 '눌리는' 요소들을 왼쪽부터: [다음 ›, 화면 분할 전환, 확대, 축소 …]
+  // 버튼 태그가 아니라 아이콘(div+svg)이어도 찾는다
+  function controlsRightOf(doc) {
     const input = numberInput(doc);
-    if (input) {
-      const ir = input.getBoundingClientRect();
-      let box = input.parentElement;
-      for (let depth = 0; box && depth < 5; depth += 1, box = box.parentElement) {
-        const cands = [...box.querySelectorAll('*')].filter((el) => {
-          if (el === input || el.contains(input) || !visible(el)) return false;
-          const r = el.getBoundingClientRect();
-          return r.left >= ir.right - 2 && Math.abs((r.top + r.bottom) / 2 - (ir.top + ir.bottom) / 2) < 40;
-        });
-        cands.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
-        const hit = cands.find((el) => el.matches('button, a, [role=button]') || getComputedStyle(el).cursor === 'pointer' || el.tagName.toLowerCase() === 'svg');
-        if (hit) return hit.closest('button, a, [role=button]') || hit;
+    if (!input) return [];
+    const ir = input.getBoundingClientRect();
+    const win = doc.defaultView;
+    let box = input.parentElement;
+    for (let depth = 0; box && depth < 6; depth += 1, box = box.parentElement) {
+      const found = [];
+      for (const el of box.querySelectorAll('*')) {
+        if (el === input || el.contains(input) || !visible(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.left < ir.right - 2 || Math.abs((r.top + r.bottom) / 2 - (ir.top + ir.bottom) / 2) > 40) continue;
+        if (!(el.matches('button, a, [role=button]') || win.getComputedStyle(el).cursor === 'pointer' || el.tagName.toLowerCase() === 'svg')) continue;
+        const target = el.closest('button, a, [role=button]') || (el.tagName.toLowerCase() === 'svg' ? el.parentElement : el);
+        // 같은 버튼 안의 아이콘·글자는 하나로 합친다
+        if (!found.some((f) => f.contains(target) || target.contains(f))) found.push(target);
+      }
+      if (found.length >= 2 || (found.length && depth >= 5)) {
+        return found.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
       }
     }
+    return [];
+  }
+
+  function findNextButton(doc) {
+    const [next] = controlsRightOf(doc);
+    if (next) return next;
     return [...doc.querySelectorAll('button, a, [role=button], [aria-label], [title]')]
       .find((b) => /다음|next/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`) && visible(b)) || null;
   }
@@ -422,6 +434,7 @@
     setSyncState(`링커리어 ${num}번 ↔ 이 시험 ${S.q + 1}번째 문항 (연동 중)`);
     if (num === SYNC.last) return;
     SYNC.last = num;
+    singleTries = 0;
     scheduleZoom();
     const q = num - SYNC.base;
     if (q === S.q || q < 0 || q >= S.sec.count) return;
@@ -435,12 +448,14 @@
   }
 
   // ---------- 문제 크기 맞춤 (링커리어 확대는 문항을 넘기면 초기화되므로 여기서 유지) ----------
-  const ZOOM = { auto: true, value: 1, timer: null };
+  // 처음에는 100%. [화면 맞춤]을 누르면 자동 맞춤, −/+로 정한 배율은 다음 문항·다음 시험에도 유지
+  const ZOOM_KEY = 'skct-overlay-zoom-v2';
+  const ZOOM = { auto: false, value: 1, timer: null };
   try {
-    const z = JSON.parse(localStorage.getItem('skct-overlay-zoom'));
-    if (z) Object.assign(ZOOM, { auto: z.auto !== false, value: Number(z.value) || 1 });
+    const z = JSON.parse(localStorage.getItem(ZOOM_KEY));
+    if (z) Object.assign(ZOOM, { auto: z.auto === true, value: Number(z.value) || 1 });
   } catch { /* 없음 */ }
-  const saveZoom = () => { try { localStorage.setItem('skct-overlay-zoom', JSON.stringify({ auto: ZOOM.auto, value: ZOOM.value })); } catch { /* 저장 불가 */ } };
+  const saveZoom = () => { try { localStorage.setItem(ZOOM_KEY, JSON.stringify({ auto: ZOOM.auto, value: ZOOM.value })); } catch { /* 저장 불가 */ } };
 
   // 진하게 보이는 긴 글(지문·문제·선지)이 차지하는 영역을 재서, 그 영역이 문제 칸 폭에 꽉 차도록 배율 계산
   function measureFit(doc) {
@@ -466,7 +481,47 @@
     return Math.max(1, Math.min(2, Math.round(z * 20) / 20));
   }
 
-  function applyZoom() {
+  // 글줄이 화면 왼쪽 절반과 오른쪽 절반에 따로 몰려 있으면 '이중 분할' 보기로 본다
+  function isSplit(doc) {
+    const win = doc.defaultView;
+    const vw = doc.documentElement.clientWidth;
+    let leftOnly = 0;
+    let rightOnly = 0;
+    const walker = doc.createTreeWalker(doc.body, win.NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || n.nodeValue.trim().length < 12 || el.offsetParent === null) continue;
+      const rgb = (win.getComputedStyle(el).color.match(/\d+/g) || []).map(Number);
+      if (rgb.length >= 3 && (rgb[0] + rgb[1] + rgb[2]) / 3 > 150) continue;
+      const range = doc.createRange();
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) {
+        if (r.width < 40) continue;
+        if (r.right < vw * 0.52) leftOnly += 1;
+        else if (r.left > vw * 0.48) rightOnly += 1;
+      }
+    }
+    return leftOnly >= 3 && rightOnly >= 3;
+  }
+
+  // 링커리어가 문항을 넘길 때마다 이중 분할로 돌아가므로 단일 보기로 되돌린다 (문항마다 최대 2번 시도)
+  let singleTries = 0;
+  async function keepSingle(doc) {
+    if (singleTries >= 2 || !isSplit(doc)) return false;
+    const toggle = controlsRightOf(doc)[1];   // 다음(›) 바로 오른쪽 = 화면 분할 전환
+    if (!toggle) return false;
+    singleTries += 1;
+    realClick(toggle);
+    await new Promise((r) => setTimeout(r, 500));
+    return true;
+  }
+
+  async function applyZoom() {
+    const pre = frameDoc();
+    if (pre?.body) {
+      pre.documentElement.style.zoom = '1';
+      if (await keepSingle(pre)) return applyZoom();
+    }
     const doc = frameDoc();
     if (!doc?.documentElement) return;
     const html = doc.documentElement;
