@@ -1,22 +1,12 @@
 (() => {
   'use strict';
 
-  const $ = (s, el = document) => el.querySelector(s);
-  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const { $, $$, esc, mmss, dateText, store, showScreen, modal, closeModal, alertModal, toast, downloadCsv } = UI;
 
-  const CIRCLED = ['', '①', '②', '③', '④', '⑤'];
+  const CIRCLED = Stats.CIRCLED;
   const WAIT_SEC = 60;
   const SAMPLE_SEC = 60;
-  const SECTION_NAMES = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
-
-  const store = {
-    get(k) {
-      try { return JSON.parse(localStorage.getItem(k)); } catch { return null; }
-    },
-    set(k, v) {
-      try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 저장 불가 환경 */ }
-    },
-  };
+  const SECTION_NAMES = Stats.SECTIONS;
 
   const saved = store.get('skct-settings') || {};
   const S = {
@@ -36,69 +26,18 @@
     sampleAnswer: null,
     busy: false,
     result: null,
+    resultIsLast: true, // 보고 있는 답안이 '지난 답안'(로컬 저장분)인지
+    sourceName: '',
+    my: null,           // 내 학습 현황 데이터
   };
 
   const saveSettings = () => store.set('skct-settings', { mode: S.mode, url: S.url, sections: S.sections });
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : lo));
-  const mmss = (sec) => {
-    sec = Math.max(0, Math.round(sec));
-    return `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
-  };
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const normalizeUrl = (u) => {
     u = (u || '').trim();
     if (!u) return '';
     return /^https?:\/\//i.test(u) ? u : `https://${u}`;
   };
-
-  function showScreen(id) {
-    $$('.screen').forEach((s) => s.classList.toggle('active', s.id === `screen-${id}`));
-    window.scrollTo(0, 0);
-  }
-
-  // ---------- 팝업 ----------
-  let modalResolve = null;
-
-  function modal({ title, body, buttons }) {
-    closeModal(undefined);
-    $('#modal-title').textContent = title;
-    $('#modal-body').innerHTML = body;
-    const box = $('#modal-btns');
-    box.replaceChildren(...buttons.map((b) => {
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = `btn${b.primary ? ' primary' : ''}`;
-      el.textContent = b.label;
-      el.onclick = () => closeModal(b.value);
-      return el;
-    }));
-    $('#modal').hidden = false;
-    box.lastElementChild.focus();
-    return new Promise((resolve) => { modalResolve = resolve; });
-  }
-
-  function closeModal(value) {
-    if (!modalResolve) return;
-    $('#modal').hidden = true;
-    const r = modalResolve;
-    modalResolve = null;
-    r(value);
-  }
-
-  const alertModal = (title, body) => modal({ title, body, buttons: [{ label: '확인', value: true, primary: true }] });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modalResolve && $('#modal-btns').children.length > 1) closeModal(false);
-  });
-
-  let toastTimer;
-  function toast(msg) {
-    const el = $('#toast');
-    el.textContent = msg;
-    el.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.hidden = true; }, 1800);
-  }
 
   // ---------- 타이머 ----------
   let countdown = null;
@@ -248,6 +187,7 @@
       const pdf = files.find((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
       if (pdf) {
         await Viewer.loadPdf(pdf);
+        S.sourceName = pdf.name;
         info.textContent = `${pdf.name} · 총 ${Viewer.pageCount()}쪽`;
       } else {
         const imgs = files
@@ -255,6 +195,7 @@
           .sort((a, b) => a.name.localeCompare(b.name, 'ko', { numeric: true }));
         if (!imgs.length) throw new Error('PDF 또는 이미지 파일만 불러올 수 있습니다.');
         await Viewer.loadImages(imgs);
+        S.sourceName = `이미지 ${imgs.length}장 (${imgs[0].name})`;
         info.textContent = `이미지 ${imgs.length}장 (${imgs[0].name}${imgs.length > 1 ? ` 외 ${imgs.length - 1}장` : ''})`;
       }
       info.classList.add('ok');
@@ -512,15 +453,23 @@
   });
 
   // ---------- ④ 종료 ----------
+  function sourceLabel() {
+    if (S.mode === 'file') return S.sourceName || 'PDF';
+    if (S.mode === 'url') return [...new Set(S.plan.map((p) => p.url))].join(' ');
+    return '종이 책';
+  }
+
   function showEnd() {
     S.phase = 'end';
     stopCountdown();
     const result = {
       date: new Date().toISOString(),
+      source: sourceLabel(),
       sections: S.plan.map((s, i) => ({
         name: s.name,
         count: s.count,
         time: s.time,
+        used: Math.min(Math.round(S.times[i].reduce((a, b) => a + b, 0)), s.time * 60),
         answers: S.answers[i],
         times: S.times[i].map((t) => Math.round(t)),
         key: '',
@@ -528,18 +477,92 @@
     };
     store.set('skct-last-result', result);
     S.result = result;
+    S.resultIsLast = true;
 
     $('#end-title').textContent = S.plan[S.plan.length - 1].name;
+    $('#end-note').textContent = '답안을 저장하는 중입니다…';
     showScreen('end');
 
     const steps = $$('#steps li');
     const bar = $('#steps');
+    const done = (i) => {
+      steps[i].classList.add('done');
+      bar.style.setProperty('--p', i / (steps.length - 1));
+    };
     steps.forEach((li) => li.classList.remove('done'));
     bar.style.setProperty('--p', 0);
-    steps.forEach((li, i) => setTimeout(() => {
-      li.classList.add('done');
-      bar.style.setProperty('--p', i / (steps.length - 1));
-    }, 350 + i * 550));
+    setTimeout(() => done(0), 300);
+
+    const NOTES = {
+      saved: '답안이 저장되었습니다. 종료 후 정답을 입력해 채점하면 학습 현황에 반영됩니다.',
+      local: '오프라인 모드: 답안은 이 브라우저에만 저장됩니다.',
+      pending: '로그인이 필요해 아직 서버에 저장하지 못했습니다. 다시 로그인하면 자동으로 저장됩니다.',
+      failed: '서버에 저장하지 못했습니다. 다음 접속 때 자동으로 다시 저장합니다.',
+    };
+    const started = Date.now();
+    saveResult(result).then((status) => {
+      setTimeout(() => {
+        $('#end-note').textContent = NOTES[status];
+        done(1);
+        setTimeout(() => done(2), 500);
+      }, Math.max(0, 900 - (Date.now() - started)));
+    });
+  }
+
+  // ---------- 서버 저장 (실패하면 보관했다가 다음 로그인 때 다시 저장) ----------
+  const PENDING = 'skct-pending';
+
+  async function upload(result) {
+    const r = await Api.saveAttempt(
+      result.sections.map(({ name, count, time, used, answers, times }) => ({ name, count, time, used: used || 0, answers, times })),
+      result.source,
+    );
+    r.records.forEach((x, i) => { result.sections[i].id = x.id; });
+    result.attemptId = r.attempt_id;
+    await Promise.all(result.sections.filter((x) => x.key).map((x) => Api.grade(x.id, x.key)));
+    const last = store.get('skct-last-result');
+    if (last && last.date === result.date) store.set('skct-last-result', result);
+  }
+
+  function addPending(result) {
+    const list = store.get(PENDING) || [];
+    if (!list.some((r) => r.date === result.date)) list.push(result);
+    store.set(PENDING, list);
+  }
+
+  function updatePending(result) {
+    const list = store.get(PENDING) || [];
+    const i = list.findIndex((r) => r.date === result.date);
+    if (i >= 0) {
+      list[i] = result;
+      store.set(PENDING, list);
+    }
+  }
+
+  async function saveResult(result) {
+    if (!Api.enabled) return 'local';
+    if (!Account.online) {
+      addPending(result);
+      return 'pending';
+    }
+    try {
+      await upload(result);
+      return 'saved';
+    } catch (err) {
+      addPending(result);
+      return err.expired ? 'pending' : 'failed';
+    }
+  }
+
+  async function flushPending() {
+    const list = store.get(PENDING) || [];
+    if (!list.length || !Account.online) return;
+    const left = [];
+    for (const r of list) {
+      try { await upload(r); } catch { left.push(r); }
+    }
+    store.set(PENDING, left);
+    if (list.length > left.length) toast(`저장되지 않았던 응시 기록 ${list.length - left.length}개를 저장했습니다.`);
   }
 
   $('#btn-end').addEventListener('click', () => {
@@ -550,10 +573,12 @@
   // ---------- ⑤ 내 답안 ----------
   const parseKey = (s) => (s.match(/[1-5]/g) || []).map(Number);
 
-  function showResult(result) {
+  function showResult(result, { isLast = true } = {}) {
     if (!result) return;
     S.result = result;
+    S.resultIsLast = isLast;
     S.phase = 'setup';
+    $$('.js-online').forEach((el) => { el.hidden = !Account.online; });
     const d = new Date(result.date);
     $('#result-date').textContent = `${d.toLocaleDateString('ko-KR')} ${d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 응시`;
 
@@ -603,12 +628,29 @@
     $('.score', card).textContent = key.length ? `정답 ${right} / ${Math.min(key.length, s.count)}` : '';
   }
 
+  const gradeTimers = {};
+
   $('#result-list').addEventListener('input', (e) => {
     const el = e.target;
     if (el.dataset.si == null) return;
-    S.result.sections[+el.dataset.si].key = el.value;
-    store.set('skct-last-result', S.result);
-    grade(+el.dataset.si);
+    const si = +el.dataset.si;
+    const sec = S.result.sections[si];
+    sec.key = el.value;
+    if (S.resultIsLast) store.set('skct-last-result', S.result);
+    updatePending(S.result);
+    grade(si);
+
+    // 입력이 멈추면 서버에 채점 결과 저장
+    if (!sec.id || !Account.online) return;
+    clearTimeout(gradeTimers[sec.id]);
+    gradeTimers[sec.id] = setTimeout(async () => {
+      try {
+        await Api.grade(sec.id, sec.key);
+        toast('채점 결과를 저장했습니다.');
+      } catch (err) {
+        if (!Account.handleError(err)) toast(err.message);
+      }
+    }, 800);
   });
 
   $('#btn-copy').addEventListener('click', async () => {
@@ -627,11 +669,134 @@
 
   $('#btn-print').addEventListener('click', () => window.print());
 
-  $('#btn-restart').addEventListener('click', () => {
+  function goSetup() {
     S.phase = 'setup';
     $('#btn-last').hidden = !store.get('skct-last-result');
     showScreen('setup');
+  }
+
+  $('#btn-restart').addEventListener('click', goSetup);
+
+  // ---------- 내 학습 현황 ----------
+  async function openStats() {
+    if (!Account.online) return;
+    const u = Account.user;
+    showScreen('stats');
+    $('#stats-title').textContent = `${u.name}님의 학습 현황`;
+    $('#stats-sub').textContent = u.is_admin ? '관리자 계정' : `${u.campus} ${u.class_no}반 · 아이디 ${u.username}`;
+    $('#stats-body').innerHTML = '<p class="empty">불러오는 중…</p>';
+    try {
+      S.my = await Api.myData();
+      Stats.renderDashboard($('#stats-body'), S.my);
+    } catch (err) {
+      if (!Account.handleError(err)) $('#stats-body').innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+    }
+  }
+
+  function attemptToResult(recs) {
+    return {
+      date: recs[0].created_at,
+      attemptId: recs[0].attempt_id,
+      source: recs[0].source,
+      sections: recs.map((r) => ({
+        id: r.id, name: r.section, count: r.q_count, time: r.time_limit, used: r.used_sec,
+        answers: r.answers, times: r.times, key: r.answer_key || '',
+      })),
+    };
+  }
+
+  $('#stats-body').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b || !S.my) return;
+    const recs = S.my.records.filter((r) => r.attempt_id === b.dataset.attempt);
+    if (!recs.length) return;
+    if (b.dataset.act === 'open') {
+      showResult(attemptToResult(recs), { isLast: false });
+      return;
+    }
+    const ok = await modal({
+      title: '응시 기록 삭제',
+      body: `<p>${dateText(recs[0].created_at, true)} 응시 기록(${recs.map((r) => esc(r.section)).join(', ')})을 삭제하시겠습니까?</p><p class="red">삭제하면 되돌릴 수 없습니다.</p>`,
+      buttons: [{ label: '취소', value: false }, { label: '삭제', value: true, primary: true }],
+    });
+    if (!ok) return;
+    try {
+      await Api.deleteAttempt(b.dataset.attempt);
+      toast('삭제했습니다.');
+      openStats();
+    } catch (err) {
+      if (!Account.handleError(err)) toast(err.message);
+    }
   });
+
+  $('#btn-stats-csv').addEventListener('click', () => {
+    if (!S.my) return;
+    downloadCsv(`SKCT_내기록_${dateText(new Date().toISOString()).replace(/\./g, '')}.csv`,
+      [Stats.recordCsvHeader, ...S.my.records.map(Stats.recordCsvRow)]);
+  });
+
+  $('#btn-change-pw').addEventListener('click', async () => {
+    const pw = await modal({
+      title: '비밀번호 변경',
+      body: `<label class="field">현재 비밀번호<input type="password" id="pw-old" class="text-input" autocomplete="current-password"></label>
+             <label class="field">새 비밀번호 (6자 이상)<input type="password" id="pw-new" class="text-input" autocomplete="new-password"></label>`,
+      buttons: [{ label: '취소', value: null }, { label: '변경', value: () => [$('#pw-old').value, $('#pw-new').value], primary: true }],
+    });
+    if (!pw) return;
+    try {
+      await Api.changePassword(pw[0], pw[1]);
+      toast('비밀번호를 변경했습니다.');
+    } catch (err) {
+      if (!Account.handleError(err)) alertModal('변경 실패', `<p>${esc(err.message)}</p>`);
+    }
+  });
+
+  // 상단 메뉴 등 data-go 버튼
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-go]');
+    if (!b) return;
+    const to = b.dataset.go;
+    if (to === 'setup') goSetup();
+    else if (to === 'stats') openStats();
+    else if (to === 'admin') Admin.open();
+  });
+
+  // ---------- 시험모드 북마크에서 넘어온 기록 (#import=...) ----------
+  function readImport() {
+    const m = location.hash.match(/^#import=(.+)$/);
+    if (!m) return null;
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const r = JSON.parse(decodeURIComponent(m[1]));
+      const sections = (r.sections || []).filter((x) => SECTION_NAMES.includes(x.name)
+        && Number.isInteger(x.count) && x.count >= 1 && x.count <= 100
+        && Array.isArray(x.answers) && x.answers.length === x.count
+        && Array.isArray(x.times) && x.times.length === x.count)
+        .map((x) => ({
+          name: x.name,
+          count: x.count,
+          time: clamp(Number(x.time), 1, 180),
+          used: clamp(Number(x.used) || 0, 0, 180 * 60),
+          answers: x.answers.map((a) => ([1, 2, 3, 4, 5].includes(a) ? a : null)),
+          times: x.times.map((t) => Math.max(0, Math.round(Number(t) || 0))),
+          key: '',
+        }));
+      if (!sections.length) throw new Error();
+      return { date: typeof r.date === 'string' ? r.date : new Date().toISOString(), source: String(r.source || '').slice(0, 300), sections };
+    } catch {
+      toast('가져온 기록을 읽지 못했습니다.');
+      return null;
+    }
+  }
+
+  async function receiveImport(result) {
+    const status = await saveResult(result);
+    store.set('skct-last-result', result);
+    showResult(result);
+    toast(status === 'saved' ? '시험모드 기록을 저장했습니다. 정답을 입력해 채점하세요.'
+      : status === 'local' ? '시험모드 기록을 불러왔습니다.'
+        : '기록을 아직 서버에 저장하지 못했습니다. 다음 접속 때 다시 저장합니다.');
+  }
 
   // ---------- 공통 ----------
   window.addEventListener('beforeunload', (e) => {
@@ -641,10 +806,40 @@
     }
   });
 
+  // ---------- 시험모드 북마크 버튼 ----------
+  const BASE = new URL('.', location.href).href;
+  const bm = $('#bm-link');
+  bm.href = `javascript:(()=>{var s=document.createElement('script');s.src='${BASE}overlay.js?v='+Date.now();document.body.appendChild(s);})();`;
+  bm.addEventListener('click', (e) => {
+    e.preventDefault();
+    alertModal('즐겨찾기 바로 끌어다 놓으세요', '<p>이 버튼은 여기서 누르는 버튼이 아닙니다.</p><p>마우스로 잡아서 <b>즐겨찾기 바에 끌어다 놓은 뒤</b>, 링커리어 문제 페이지에서 눌러 주세요.</p>');
+  });
+
+  // ---------- 시작 ----------
+  let imported = readImport();
   Viewer.init();
   Sketch.init($('#draw'));
   Calc.init($('#calc'));
+  Admin.init();
   renderRows();
   setMode(S.mode);
   $('#btn-last').hidden = !store.get('skct-last-result');
+
+  Account.init(async () => {
+    $('#btn-last').hidden = !store.get('skct-last-result');
+    await flushPending();
+    if (imported) {
+      const r = imported;
+      imported = null;
+      receiveImport(r);
+    }
+  });
+
+  // 이미 열려 있는 탭으로 기록이 넘어온 경우
+  window.addEventListener('hashchange', () => {
+    const r = readImport();
+    if (!r) return;
+    if (Account.online || !Api.enabled) receiveImport(r);
+    else imported = r;
+  });
 })();
