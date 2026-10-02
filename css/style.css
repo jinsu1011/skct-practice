@@ -153,6 +153,10 @@ input, textarea { font: inherit; color: inherit; }
   background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
 }
 
+/* 진행 게이지 (상단 바 바로 아래) */
+.progress { flex: none; height: 6px; background: #e3e3e6; }
+.progress-fill { height: 100%; width: 0; background: var(--red); transition: width .3s ease; }
+
 /* 문제 뷰어 */
 .viewer { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .viewer-bar {
@@ -197,34 +201,29 @@ input, textarea { font: inherit; color: inherit; }
 /* 답안 바 */
 .answer-bar {
   flex: none;
-  display: grid; grid-template-columns: 104px minmax(0, 1fr) 136px; gap: 16px; align-items: center;
+  display: grid; grid-template-columns: minmax(0, 1fr) 136px; gap: 16px; align-items: end;
   padding: 14px 16px;
   background: #fff; border: 1px solid var(--line); border-radius: 8px;
 }
-.q-info { text-align: center; line-height: 1.2; }
-.q-info .lbl { display: block; font-size: 13px; color: var(--muted); }
-.q-info strong { font-size: 30px; }
-.q-info .tot { font-size: 15px; color: var(--muted); margin-left: 3px; }
-/* 선지: 수능처럼 위에서부터 한 줄에 하나씩 */
-.choices { display: flex; flex-direction: column; gap: 6px; }
+/* 선지: 수능처럼 위에서부터 한 줄씩, 박스 없이 줄 전체가 선택 영역 */
+.choices { display: flex; flex-direction: column; gap: 2px; }
 .choice {
   display: flex; align-items: center; gap: 12px;
-  min-height: 38px; padding: 6px 14px;
-  border: 1px solid #c9c9c9; border-radius: 6px; background: #fff;
+  min-height: 36px; padding: 5px 8px;
+  border: 0; border-radius: 4px; background: transparent;
   text-align: left; font-size: 15px; line-height: 1.45;
-  transition: background .12s, border-color .12s;
+  transition: background .12s;
   user-select: none;
 }
-.choice:hover { background: #f2f2f3; }
+.choice:hover { background: #f3f3f4; }
 .choice .cn {
   flex: none; width: 26px; height: 26px; border-radius: 50%;
   border: 1.5px solid #8a8a8a; display: grid; place-items: center;
   font-weight: 700; font-size: 14px;
 }
-.choice.sel { background: var(--sel); border-color: var(--sel-line); }
-.choice.sel:hover { background: #c9cbd1; }
+.choice.sel { background: #e6e7ea; }
 .choice.sel .cn { background: #33363c; border-color: #33363c; color: #fff; }
-.next { height: 60px; padding: 0 10px; font-size: 17px; font-weight: 700; white-space: nowrap; }
+.next { height: 52px; padding: 0 10px; font-size: 17px; font-weight: 700; white-space: nowrap; }
 
 /* 도구: 메모장 / 그림판 / 계산기 */
 .tools { display: flex; flex-direction: column; gap: 12px; min-height: 0; }

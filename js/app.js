@@ -343,7 +343,7 @@
       <div class="sample-q">${sm.html}</div>
       <details class="sample-ans"><summary>정답 보기</summary><p>정답 ${CIRCLED[sm.answer]} — ${sm.explain}</p></details>`;
 
-    $('#q-info').innerHTML = '<span class="lbl">유형</span><strong style="font-size:22px">예시</strong>';
+    setProgress(0);
     renderChoices(sm.choices);
     $('#btn-next').textContent = '본 검사 시작';
     clearTools();
@@ -373,7 +373,7 @@
 
   function showQuestion() {
     const sec = S.plan[S.si];
-    $('#q-info').innerHTML = `<span class="lbl">문항</span><strong>${S.q + 1}</strong><span class="tot">/ ${sec.count}</span>`;
+    setProgress(S.q / sec.count);
     paintChoices(S.answers[S.si][S.q]);
     $('#btn-next').textContent = S.q === sec.count - 1 ? '제출' : '다음';
     clearTools();
@@ -389,6 +389,10 @@
         </div>`);
     }
     S.qStart = Date.now();
+  }
+
+  function setProgress(ratio) {
+    $('#progress-fill').style.width = `${Math.round(ratio * 1000) / 10}%`;
   }
 
   function recordTime() {
@@ -455,6 +459,7 @@
     stopCountdown();
     S.phase = 'between';
     closeModal(false);
+    setProgress(1);
     $('#exam-timer').classList.remove('warn');
 
     if (reason === 'timeup') {
