@@ -108,8 +108,11 @@
   <section id="screen-exam" class="screen">
     <header class="topbar">
       <div class="tb-left" id="exam-title"></div>
-      <div class="tb-center"><span class="tl-label">남은 시간</span><span class="tl-time" id="exam-timer">00:00</span></div>
-      <div class="tb-right"></div>
+      <div class="tb-center"><span class="tl-label" id="exam-timer-label">남은 시간</span><span class="tl-time" id="exam-timer">00:00</span></div>
+      <div class="tb-right">
+        <button type="button" id="btn-pause" class="tb-btn">일시정지</button>
+        <button type="button" id="btn-reset" class="tb-btn">시간 초기화</button>
+      </div>
     </header>
     <div class="exam-body">
       <div class="exam-main">

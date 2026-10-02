@@ -102,29 +102,72 @@
 
   // ---------- 타이머 ----------
   let countdown = null;
+  const T = { total: 0, left: 0, end: 0, els: [], onDone: null, warn: false, paused: false };
 
   function startCountdown(seconds, els, onDone, warn = false) {
     stopCountdown();
-    const end = Date.now() + seconds * 1000;
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      els.forEach((el) => {
-        el.textContent = mmss(left);
-        el.classList.toggle('warn', warn && left <= 60);
-      });
-      if (left <= 0) {
-        stopCountdown();
-        onDone();
-      }
-    };
+    Object.assign(T, { total: seconds, left: seconds, els, onDone, warn, paused: false });
+    paintPause();
+    runCountdown();
+  }
+
+  function runCountdown() {
+    clearInterval(countdown);
+    T.end = Date.now() + T.left * 1000;
     tick();
     countdown = setInterval(tick, 200);
+  }
+
+  function tick() {
+    if (!T.paused) T.left = Math.max(0, (T.end - Date.now()) / 1000);
+    const left = Math.ceil(T.left);
+    T.els.forEach((el) => {
+      el.textContent = mmss(left);
+      el.classList.toggle('warn', T.warn && !T.paused && left <= 60);
+      el.classList.toggle('paused', T.paused);
+    });
+    if (left <= 0 && !T.paused) {
+      stopCountdown();
+      T.onDone();
+    }
   }
 
   function stopCountdown() {
     clearInterval(countdown);
     countdown = null;
   }
+
+  function togglePause() {
+    if (!T.onDone || !['sample', 'test'].includes(S.phase)) return;
+    if (T.paused) {
+      T.paused = false;
+      S.qStart = Date.now();
+      runCountdown();
+    } else {
+      recordTime();
+      tick();
+      T.paused = true;
+      stopCountdown();
+      tick();
+    }
+    paintPause();
+  }
+
+  function resetTimer() {
+    if (!T.onDone || !['sample', 'test'].includes(S.phase)) return;
+    T.left = T.total;
+    if (T.paused) tick();
+    else runCountdown();
+  }
+
+  function paintPause() {
+    $('#btn-pause').textContent = T.paused ? '계속' : '일시정지';
+    $('#btn-pause').classList.toggle('on', T.paused);
+    $('#exam-timer-label').textContent = T.paused ? '일시정지' : '남은 시간';
+  }
+
+  $('#btn-pause').addEventListener('click', togglePause);
+  $('#btn-reset').addEventListener('click', resetTimer);
 
   // ---------- ① 설정 ----------
   function setMode(m) {
@@ -265,9 +308,7 @@
   }
 
   function renderChoices(texts) {
-    const box = $('#choices');
-    box.classList.toggle('with-text', !!texts);
-    box.innerHTML = [1, 2, 3, 4, 5].map((n) => `
+    $('#choices').innerHTML = [1, 2, 3, 4, 5].map((n) => `
       <button type="button" class="choice" data-n="${n}" aria-pressed="false">
         <span class="cn">${n}</span>${texts ? `<span class="ct">${esc(texts[n - 1])}</span>` : ''}
       </button>`).join('');
@@ -351,7 +392,7 @@
   }
 
   function recordTime() {
-    if (S.phase !== 'test') return;
+    if (S.phase !== 'test' || T.paused) return;
     const now = Date.now();
     S.times[S.si][S.q] += (now - S.qStart) / 1000;
     S.qStart = now;
