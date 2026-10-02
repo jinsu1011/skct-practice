@@ -34,7 +34,12 @@ window.UI = (() => {
       try { return JSON.parse(localStorage.getItem(k)); } catch { return null; }
     },
     set(k, v) {
-      try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 저장 불가 환경 */ }
+      try {
+        localStorage.setItem(k, JSON.stringify(v));
+        return true;
+      } catch {
+        return false; // 저장 불가 환경 또는 용량 초과
+      }
     },
     remove(k) {
       try { localStorage.removeItem(k); } catch { /* 저장 불가 환경 */ }

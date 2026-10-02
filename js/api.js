@@ -110,6 +110,7 @@ window.Api = (() => {
     grade: (id, answerKey) => authed('grade_record', { p_id: id, p_key: answerKey }),
     deleteAttempt: (attemptId) => authed('delete_attempt', { p_attempt: attemptId }),
     myData: () => authed('my_data'),
+    attemptNotes: (attemptId) => authed('attempt_notes', { p_attempt: attemptId }),
     adminUsers: () => authed('admin_users'),
     adminRecords: () => authed('admin_records'),
     adminUserDetail: (userId) => authed('admin_user_detail', { p_user: userId }),

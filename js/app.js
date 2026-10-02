@@ -247,6 +247,7 @@
     S.plan = plan;
     S.answers = plan.map((s) => Array(s.count).fill(null));
     S.times = plan.map((s) => Array(s.count).fill(0));
+    S.notes = plan.map(() => []);
     S.si = 0;
 
     document.documentElement.requestFullscreen?.().catch(() => {});
@@ -417,6 +418,7 @@
           });
           if (!ok || S.phase !== 'test') return;
         }
+        captureNote();
         recordTime();
         S.q += 1;
         showQuestion();
@@ -426,7 +428,16 @@
     }
   });
 
+  // 문항을 넘기기 전에 메모장·그림판 내용을 저장 (빈 문항은 저장하지 않음)
+  function captureNote() {
+    if (S.phase !== 'test') return;
+    const memo = $('#memo').value.trim().slice(0, 2000);
+    const img = Sketch.snapshot();
+    if (memo || img) S.notes[S.si][S.q] = { q: S.q, memo, img };
+  }
+
   async function finishSection(reason) {
+    captureNote();
     recordTime();
     stopCountdown();
     S.phase = 'between';
@@ -481,10 +492,11 @@
         used: Math.min(Math.round(S.times[i].reduce((a, b) => a + b, 0)), s.time * 60),
         answers: S.answers[i],
         times: S.times[i].map((t) => Math.round(t)),
+        notes: S.notes[i].filter(Boolean),
         key: '',
       })),
     };
-    store.set('skct-last-result', result);
+    saveLast(result);
     S.result = result;
     S.resultIsLast = true;
 
@@ -523,7 +535,7 @@
 
   async function upload(result) {
     const r = await Api.saveAttempt(
-      result.sections.map(({ name, count, time, used, answers, times }) => ({ name, count, time, used: used || 0, answers, times })),
+      result.sections.map(({ name, count, time, used, answers, times, notes }) => ({ name, count, time, used: used || 0, answers, times, notes: notes || [] })),
       result.source,
       result.external,
     );
@@ -532,13 +544,18 @@
     result.attemptId = r.attempt_id;
     await Promise.all(result.sections.filter((x) => x.key).map((x) => Api.grade(x.id, x.key)));
     const last = store.get('skct-last-result');
-    if (last && last.date === result.date) store.set('skct-last-result', result);
+    if (last && last.date === result.date) saveLast(result);
   }
+
+  // 메모·그림까지 넣으면 브라우저 저장 용량을 넘을 수 있어, 실패하면 그림을 빼고 저장
+  const slim = (r) => ({ ...r, sections: r.sections.map((s) => ({ ...s, notes: (s.notes || []).filter((n) => n.memo).map((n) => ({ ...n, img: null })) })) });
+  const saveLast = (r) => store.set('skct-last-result', r) || store.set('skct-last-result', slim(r));
+  const savePending = (list) => store.set(PENDING, list) || store.set(PENDING, list.map(slim));
 
   function addPending(result) {
     const list = store.get(PENDING) || [];
     if (!list.some((r) => r.date === result.date)) list.push(result);
-    store.set(PENDING, list);
+    savePending(list);
   }
 
   function updatePending(result) {
@@ -546,7 +563,7 @@
     const i = list.findIndex((r) => r.date === result.date);
     if (i >= 0) {
       list[i] = result;
-      store.set(PENDING, list);
+      savePending(list);
     }
   }
 
@@ -573,7 +590,7 @@
       if (!mine(r)) { left.push(r); continue; }
       try { await upload(r); } catch { left.push(r); }
     }
-    store.set(PENDING, left);
+    savePending(left);
     if (list.length > left.length) toast(`저장되지 않았던 응시 기록 ${list.length - left.length}개를 저장했습니다.`);
   }
 
@@ -585,12 +602,17 @@
   // ---------- ⑤ 내 답안 ----------
   const parseKey = (s) => (s.match(/[1-5]/g) || []).map(Number);
 
-  function showResult(result, { isLast = true } = {}) {
+  function showResult(result, { isLast = true, readonly = false, back = null, who = '' } = {}) {
     if (!result) return;
     S.result = result;
     S.resultIsLast = isLast;
+    S.resultBack = back;
     S.phase = 'setup';
-    $$('.js-online').forEach((el) => { el.hidden = !Account.online; });
+    $$('.js-online').forEach((el) => { el.hidden = !Account.online || readonly; });
+    $('#btn-restart').hidden = readonly;
+    $('#btn-result-back').hidden = !back;
+    $('#result-title').textContent = who ? `${who} 학생 답안` : '내 답안';
+    $('#result-who').textContent = who ? `${who} 학생 답안` : '작성한 답안';
     const d = new Date(result.date);
     $('#result-date').textContent = `${d.toLocaleDateString('ko-KR')} ${d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 응시`;
 
@@ -604,7 +626,7 @@
             <span class="meta">응답 ${answered} / ${s.count} · 미응답 ${s.count - answered} · 사용 시간 ${mmss(Math.min(used, s.time * 60))} / ${s.time}:00</span>
             <span class="score"></span>
           </div>
-          <label class="r-key">정답 입력 <input type="text" inputmode="numeric" data-si="${si}" value="${esc(s.key || '')}" placeholder="예: 3 2 5 1 4 …  또는 32514…"></label>
+          <label class="r-key">정답 입력 <input type="text" inputmode="numeric" data-si="${si}" value="${esc(s.key || '')}" placeholder="예: 3 2 5 1 4 …  또는 32514…" ${readonly ? 'disabled' : ''}></label>
           <div class="r-grid">
             ${s.answers.map((a, q) => `
               <div class="cell" data-q="${q}">
@@ -613,14 +635,60 @@
                 ${a ? `<span class="ans">${CIRCLED[a]}</span>` : '<span class="ans none">미응답</span>'}
                 <span class="key"></span>
                 <span class="t">${s.times[q] ? `${s.times[q]}초` : '-'}</span>
+                <span class="memo-ic" title="메모·그림 보기">✎</span>
               </div>`).join('')}
           </div>
         </section>`;
     }).join('');
 
     result.sections.forEach((_, si) => grade(si));
+    S.resultNotes = result.sections.map((s) => noteMap(s.notes));
+    paintNotes();
     showScreen('result');
+    loadNotes(result);
   }
+
+  const noteMap = (notes) => Object.fromEntries((notes || []).map((n) => [n.q, n]));
+
+  function paintNotes() {
+    $$('.r-card').forEach((card) => {
+      const notes = S.resultNotes[+card.dataset.si] || {};
+      $$('.cell', card).forEach((cell) => cell.classList.toggle('has-note', !!notes[+cell.dataset.q]));
+    });
+  }
+
+  // 서버에 저장된 응시라면 메모·그림을 따로 불러온다 (목록에는 용량 때문에 빠져 있음)
+  async function loadNotes(result) {
+    if (!result.attemptId || !Account.online || result.sections.every((s) => s.notes)) return;
+    try {
+      const rows = await Api.attemptNotes(result.attemptId);
+      if (S.result !== result) return;
+      const byId = Object.fromEntries(rows.map((r) => [r.id, r.notes]));
+      result.sections.forEach((s, si) => {
+        if (!s.notes && byId[s.id]) S.resultNotes[si] = noteMap(byId[s.id]);
+      });
+      paintNotes();
+    } catch {
+      /* 메모를 못 불러와도 답안 보기에는 지장 없음 */
+    }
+  }
+
+  $('#result-list').addEventListener('click', (e) => {
+    const cell = e.target.closest('.cell.has-note');
+    if (!cell) return;
+    const si = +cell.closest('.r-card').dataset.si;
+    const q = +cell.dataset.q;
+    const n = S.resultNotes[si]?.[q];
+    if (!n) return;
+    const img = typeof n.img === 'string' && n.img.startsWith('data:image/') ? n.img : '';
+    alertModal(`${S.result.sections[si].name} ${q + 1}번 메모·그림`, `
+      ${n.memo ? `<pre class="note-memo">${esc(n.memo)}</pre>` : ''}
+      ${img ? `<img class="note-img" src="${esc(img)}" alt="그림판">` : ''}`);
+  });
+
+  $('#btn-result-back').addEventListener('click', () => {
+    if (S.resultBack) showScreen(S.resultBack);
+  });
 
   function grade(si) {
     const s = S.result.sections[si];
@@ -648,7 +716,7 @@
     const si = +el.dataset.si;
     const sec = S.result.sections[si];
     sec.key = el.value;
-    if (S.resultIsLast) store.set('skct-last-result', S.result);
+    if (S.resultIsLast) saveLast(S.result);
     updatePending(S.result);
     grade(si);
 
@@ -725,7 +793,7 @@
     const recs = S.my.records.filter((r) => r.attempt_id === b.dataset.attempt);
     if (!recs.length) return;
     if (b.dataset.act === 'open') {
-      showResult(attemptToResult(recs), { isLast: false });
+      showResult(attemptToResult(recs), { isLast: false, back: 'stats' });
       return;
     }
     const ok = await modal({
@@ -741,6 +809,14 @@
     } catch (err) {
       if (!Account.handleError(err)) toast(err.message);
     }
+  });
+
+  $('#admin-user-body').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act="open"]');
+    const data = Admin.detail;
+    if (!b || !data) return;
+    const recs = data.records.filter((r) => r.attempt_id === b.dataset.attempt);
+    if (recs.length) showResult(attemptToResult(recs), { isLast: false, readonly: true, back: 'admin-user', who: data.user.name });
   });
 
   $('#btn-stats-csv').addEventListener('click', () => {
@@ -775,42 +851,79 @@
     else if (to === 'admin') Admin.open();
   });
 
-  // ---------- 시험모드 북마크에서 넘어온 기록 (#import=...) ----------
+  // ---------- 시험모드 북마크에서 넘어온 기록 ----------
+  function parseImport(r) {
+    const sections = (r?.sections || []).filter((x) => SECTION_NAMES.includes(x.name)
+      && Number.isInteger(x.count) && x.count >= 1 && x.count <= 100
+      && Array.isArray(x.answers) && x.answers.length === x.count
+      && Array.isArray(x.times) && x.times.length === x.count)
+      .map((x) => ({
+        name: x.name,
+        count: x.count,
+        time: clamp(Number(x.time), 1, 180),
+        used: clamp(Number(x.used) || 0, 0, 180 * 60),
+        answers: x.answers.map((a) => ([1, 2, 3, 4, 5].includes(a) ? a : null)),
+        times: x.times.map((t) => Math.max(0, Math.round(Number(t) || 0))),
+        notes: (Array.isArray(x.notes) ? x.notes : [])
+          .filter((n) => Number.isInteger(n?.q) && n.q >= 0 && n.q < x.count)
+          .map((n) => ({
+            q: n.q,
+            memo: String(n.memo || '').slice(0, 2000),
+            img: typeof n.img === 'string' && n.img.startsWith('data:image/') && n.img.length <= 60000 ? n.img : null,
+          }))
+          .filter((n) => n.memo || n.img),
+        key: '',
+      }));
+    if (!sections.length) return null;
+    return {
+      date: typeof r.date === 'string' ? r.date : new Date().toISOString(),
+      source: String(r.source || '').slice(0, 300),
+      external: true,
+      msg: !!r.msg,   // 그림은 시험모드 창에 남아 있어 메시지로 받아와야 함
+      sections,
+    };
+  }
+
+  // #import=... (작은 기록) 방식
   function readImport() {
     const m = location.hash.match(/^#import=(.+)$/);
     if (!m) return null;
     history.replaceState(null, '', location.pathname + location.search);
-    try {
-      const r = JSON.parse(decodeURIComponent(m[1]));
-      const sections = (r.sections || []).filter((x) => SECTION_NAMES.includes(x.name)
-        && Number.isInteger(x.count) && x.count >= 1 && x.count <= 100
-        && Array.isArray(x.answers) && x.answers.length === x.count
-        && Array.isArray(x.times) && x.times.length === x.count)
-        .map((x) => ({
-          name: x.name,
-          count: x.count,
-          time: clamp(Number(x.time), 1, 180),
-          used: clamp(Number(x.used) || 0, 0, 180 * 60),
-          answers: x.answers.map((a) => ([1, 2, 3, 4, 5].includes(a) ? a : null)),
-          times: x.times.map((t) => Math.max(0, Math.round(Number(t) || 0))),
-          key: '',
-        }));
-      if (!sections.length) throw new Error();
-      return {
-        date: typeof r.date === 'string' ? r.date : new Date().toISOString(),
-        source: String(r.source || '').slice(0, 300),
-        external: true,
-        sections,
-      };
-    } catch {
-      toast('가져온 기록을 읽지 못했습니다.');
-      return null;
+    let r = null;
+    try { r = parseImport(JSON.parse(decodeURIComponent(m[1]))); } catch { /* 아래에서 안내 */ }
+    if (!r) toast('가져온 기록을 읽지 못했습니다.');
+    return r;
+  }
+
+  // 주소에는 답안·메모만 담겨 온다. 그림은 시험모드 창(opener)에 요청해서 받고, 못 받으면 그림 없이 진행
+  function completeImport(r) {
+    if (!r.msg || !window.opener) {
+      keepImport(r);
+      return Promise.resolve();
     }
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (full) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMsg);
+        keepImport(full || r);
+        resolve();
+      };
+      const onMsg = (e) => {
+        if (e.source !== window.opener || e.data?.type !== 'skct-import') return;
+        const full = parseImport(e.data.result);
+        finish(full && full.date === r.date ? full : null);
+      };
+      window.addEventListener('message', onMsg);
+      window.opener.postMessage({ type: 'skct-import-ready' }, '*');
+      setTimeout(() => finish(null), 3000);
+    });
   }
 
   async function receiveImport(result) {
     const status = await saveResult(result);
-    store.set('skct-last-result', result);
+    saveLast(result);
     showResult(result);
     toast(status === 'saved' ? '시험모드 기록을 저장했습니다. 정답을 입력해 채점하세요.'
       : status === 'local' ? '시험모드 기록을 불러왔습니다.'
@@ -848,7 +961,7 @@
     }
   };
   const firstImport = readImport();
-  if (firstImport) keepImport(firstImport);
+  const importReady = firstImport ? completeImport(firstImport) : Promise.resolve();
   Viewer.init();
   Sketch.init($('#draw'));
   Calc.init($('#calc'));
@@ -860,15 +973,19 @@
   Account.init(async () => {
     refreshLastButton();
     await flushPending();
+    await importReady;
     const r = takeImport();
     if (r) receiveImport(r);
   });
 
   // 이미 열려 있는 탭으로 기록이 넘어온 경우
-  window.addEventListener('hashchange', () => {
+  window.addEventListener('hashchange', async () => {
     const r = readImport();
     if (!r) return;
-    if (Account.online || !Api.enabled) receiveImport(r);
-    else keepImport(r);
+    await completeImport(r);
+    if (Account.online || !Api.enabled) {
+      const x = takeImport();
+      if (x) receiveImport(x);
+    }
   });
 })();

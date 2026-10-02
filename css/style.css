@@ -449,6 +449,16 @@ kbd { padding: 1px 6px; border: 1px solid #ccc; border-bottom-width: 2px; border
   box-shadow: 0 4px 14px rgba(0,0,0,.2);
 }
 
+/* 메모·그림 */
+.cell .memo-ic { display: none; position: absolute; bottom: 4px; right: 6px; font-size: 12px; color: var(--ok); }
+.cell.has-note { cursor: pointer; }
+.cell.has-note .memo-ic { display: block; }
+.cell.has-note:hover { box-shadow: 0 0 0 2px rgba(33, 103, 209, .25); }
+.note-memo { white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14.5px; line-height: 1.6; padding: 10px 12px; border-radius: 8px; background: var(--soft); max-height: 260px; overflow: auto; }
+.note-img { display: block; max-width: 100%; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.modal-box:has(.note-img) { width: min(560px, 100%); }
+.r-key input:disabled { background: var(--soft); }
+
 /* ---------- 팝업 ---------- */
 .modal { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .45); }
 .modal-box { width: min(440px, 100%); padding: 28px 26px 22px; border-radius: 12px; background: #fff; box-shadow: 0 12px 40px rgba(0, 0, 0, .25); animation: pop .15s ease-out; }

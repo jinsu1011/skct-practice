@@ -289,5 +289,5 @@ window.Admin = (() => {
     });
   }
 
-  return { init, open };
+  return { init, open, get detail() { return A.detailData; } };
 })();

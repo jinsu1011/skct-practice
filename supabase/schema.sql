@@ -64,6 +64,9 @@ create table if not exists public.records (
   source      text
 );
 
+-- 문항별 메모·그림 [{q, memo, img}] (용량 절약을 위해 30일 뒤 자동 삭제)
+alter table public.records add column if not exists notes jsonb;
+
 -- Slack 로그인 계정 연결 (Supabase Auth 사용자 id)
 alter table public.users add column if not exists auth_id uuid unique;
 alter table public.users add column if not exists email text;
@@ -301,11 +304,14 @@ declare
   s jsonb;
   rid uuid;
   cnt int;
+  nts jsonb;
   saved jsonb := '[]'::jsonb;
 begin
   if jsonb_typeof(p_sections) <> 'array' or jsonb_array_length(p_sections) not between 1 and 10 then
     raise exception '잘못된 응시 기록입니다.';
   end if;
+  -- 무료 용량을 넘지 않도록 30일 지난 메모·그림은 지운다 (답안·채점 기록은 유지)
+  update records set notes = null where notes is not null and created_at < now() - interval '30 days';
   for s in select * from jsonb_array_elements(p_sections) loop
     cnt := (s->>'count')::int;
     if s->>'name' not in ('언어이해', '자료해석', '창의수리', '언어추리', '수열추리')
@@ -314,10 +320,19 @@ begin
        or jsonb_array_length(s->'times') <> cnt then
       raise exception '잘못된 응시 기록입니다.';
     end if;
-    insert into records (attempt_id, user_id, section, q_count, time_limit, used_sec, answers, times, source)
+    -- 메모는 2,000자, 그림은 약 45KB까지만 저장
+    select nullif(coalesce(jsonb_agg(jsonb_build_object(
+             'q', (n->>'q')::int,
+             'memo', left(coalesce(n->>'memo', ''), 2000),
+             'img', case when n->>'img' like 'data:image/%' and char_length(n->>'img') <= 60000 then n->>'img' end)), '[]'::jsonb), '[]'::jsonb)
+      into nts
+      from jsonb_array_elements(case when jsonb_typeof(s->'notes') = 'array' then s->'notes' else '[]'::jsonb end) n
+     where coalesce(n->>'q', '') ~ '^[0-9]+$' and (n->>'q')::int < cnt
+       and (coalesce(n->>'memo', '') <> '' or n->>'img' like 'data:image/%');
+    insert into records (attempt_id, user_id, section, q_count, time_limit, used_sec, answers, times, source, notes)
     values (aid, v, s->>'name', cnt, least(greatest((s->>'time')::int, 1), 180),
             least(greatest(coalesce((s->>'used')::int, 0), 0), 180 * 60),
-            s->'answers', s->'times', left(p_source, 300))
+            s->'answers', s->'times', left(p_source, 300), nts)
     returning id into rid;
     saved := saved || jsonb_build_object('id', rid, 'section', s->>'name');
   end loop;
@@ -360,12 +375,24 @@ returns json language sql security definer set search_path = public as $$
     'user', _profile(p_uid),
     'records', coalesce((select json_agg(r order by r.created_at)
                            from (select id, attempt_id, created_at, section, q_count, time_limit, used_sec,
-                                        answers, times, answer_key, correct, graded, source
+                                        answers, times, answer_key, correct, graded, source,
+                                        coalesce(jsonb_array_length(notes), 0) as note_count
                                    from records where user_id = p_uid) r), '[]'::json),
     'visits', coalesce((select json_agg(json_build_object('day', day, 'seconds', seconds) order by day)
                           from visits where user_id = p_uid), '[]'::json)
   );
 $$;
+
+-- 응시 1회의 문항별 메모·그림 (본인 또는 관리자만)
+create or replace function public.attempt_notes(p_token uuid, p_attempt uuid)
+returns json language plpgsql security definer set search_path = public as $$
+declare v uuid := _uid(p_token);
+begin
+  return coalesce((select json_agg(json_build_object('id', id, 'section', section, 'notes', notes) order by created_at)
+                     from records
+                    where attempt_id = p_attempt
+                      and (user_id = v or exists (select 1 from users where id = v and is_admin))), '[]'::json);
+end $$;
 
 create or replace function public.my_data(p_token uuid)
 returns json language plpgsql security definer set search_path = public as $$
@@ -394,7 +421,8 @@ begin
   perform _admin(p_token);
   return coalesce((select json_agg(r order by r.created_at) from (
     select id, attempt_id, user_id, created_at, section, q_count, time_limit, used_sec,
-           answers, times, answer_key, correct, graded, source
+           answers, times, answer_key, correct, graded, source,
+           coalesce(jsonb_array_length(notes), 0) as note_count
       from records) r), '[]'::json);
 end $$;
 
@@ -472,6 +500,7 @@ grant execute on function
   public.grade_record(uuid, uuid, text),
   public.delete_attempt(uuid, uuid),
   public.my_data(uuid),
+  public.attempt_notes(uuid, uuid),
   public.admin_users(uuid),
   public.admin_records(uuid),
   public.admin_user_detail(uuid, uuid),

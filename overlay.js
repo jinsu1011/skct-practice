@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '12';
+  const VERSION = '15';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -206,7 +206,7 @@
   }
 
   // ---------- 상태 ----------
-  const S = { phase: 'setup', sec: null, q: 0, answers: [], times: [], qStart: 0, sampleAnswer: null, busy: false, result: null, saved: true };
+  const S = { phase: 'setup', sec: null, q: 0, answers: [], times: [], notes: [], qStart: 0, sampleAnswer: null, busy: false, result: null, saved: true };
   const unsaved = () => S.phase === 'end' && !S.saved;
   const T = { total: 0, left: 0, end: 0, onDone: null, paused: false, warn: false };
   let countdown = null;
@@ -296,6 +296,7 @@
     $('#o-save').textContent = '저장하고 채점하기';
     S.answers = Array(count).fill(null);
     S.times = Array(count).fill(0);
+    S.notes = [];
     ensureFrame();
     showLayer('exam');
     document.documentElement.requestFullscreen?.().catch(() => {});
@@ -366,6 +367,7 @@
           });
           if (!ok || S.phase !== 'test') return;
         }
+        captureNote();
         recordTime();
         S.q += 1;
         showQuestion();
@@ -375,7 +377,15 @@
     }
   }
 
+  function captureNote() {
+    if (S.phase !== 'test') return;
+    const memo = $('#memo').value.trim().slice(0, 2000);
+    const img = window.Sketch?.snapshot() || null;
+    if (memo || img) S.notes[S.q] = { q: S.q, memo, img };
+  }
+
   async function finish(reason) {
+    captureNote();
     recordTime();
     stopCountdown();
     S.phase = 'end';
@@ -392,6 +402,7 @@
       sections: [{
         name: S.sec.name, count: S.sec.count, time: S.sec.time,
         used: Math.min(times.reduce((a, b) => a + b, 0), S.sec.time * 60), answers: S.answers, times,
+        notes: S.notes.filter(Boolean),
       }],
     };
     const answered = S.answers.filter((a) => a != null).length;
@@ -459,8 +470,21 @@
     S.saved = true;
     showLayer('setup');
   };
+  // 사이트 탭이 열리면 'skct-import-ready'를 보내오고, 그때 기록(메모·그림 포함)을 넘겨준다
+  const siteOrigin = new URL(BASE).origin;
+  window.addEventListener('message', (e) => {
+    if (e.origin !== siteOrigin || e.data?.type !== 'skct-import-ready' || !S.result) return;
+    e.source.postMessage({ type: 'skct-import', result: S.result }, siteOrigin);
+  });
+
   $('#o-save').onclick = () => {
-    const tab = window.open(`${BASE}#import=${encodeURIComponent(JSON.stringify(S.result))}`, '_blank');
+    // 주소에는 그림을 뺀 기록만 담고(msg 표시), 그림은 새 탭이 요청하면 메시지로 보낸다
+    const light = {
+      ...S.result,
+      msg: true,
+      sections: S.result.sections.map((s) => ({ ...s, notes: (s.notes || []).map((n) => ({ ...n, img: null })) })),
+    };
+    const tab = window.open(`${BASE}#import=${encodeURIComponent(JSON.stringify(light))}`, '_blank');
     if (!tab) {
       toast('팝업이 차단되었습니다. 주소창 오른쪽에서 팝업을 허용한 뒤 다시 눌러 주세요.');
       return;

@@ -206,7 +206,7 @@ window.Stats = (() => {
     if (!records.length) return '<p class="empty">아직 응시 기록이 없어요.</p>';
     const rows = [...records].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     return `<div class="table-wrap"><table class="data-table">
-      <thead><tr><th>응시 일시</th><th>영역</th><th>응답</th><th>채점</th><th>사용 시간</th><th>자료</th>${opts.readonly ? '' : '<th></th>'}</tr></thead>
+      <thead><tr><th>응시 일시</th><th>영역</th><th>응답</th><th>채점</th><th>사용 시간</th><th>메모·그림</th><th>자료</th><th></th></tr></thead>
       <tbody>${rows.map((r) => `
         <tr>
           <td>${dateText(r.created_at, true)}</td>
@@ -214,10 +214,12 @@ window.Stats = (() => {
           <td>${answeredCount(r)} / ${r.q_count}</td>
           <td>${r.graded ? `<b>${r.correct}</b> / ${r.graded} (${pct(r.correct / r.graded)})` : '<span class="muted">미채점</span>'}</td>
           <td>${duration(r.used_sec)} / ${r.time_limit}분</td>
+          <td>${r.note_count ? `✎ ${r.note_count}문항` : '<span class="muted">-</span>'}</td>
           <td class="src" title="${esc(r.source || '')}">${esc(r.source || '-')}</td>
-          ${opts.readonly ? '' : `<td class="acts">
-            <button type="button" class="btn sm" data-act="open" data-attempt="${r.attempt_id}">${r.graded ? '답안 보기' : '채점하기'}</button>
-            <button type="button" class="btn sm ghost" data-act="delete" data-attempt="${r.attempt_id}">삭제</button></td>`}
+          <td class="acts">${opts.readonly
+            ? `<button type="button" class="btn sm" data-act="open" data-attempt="${r.attempt_id}">답안·메모 보기</button>`
+            : `<button type="button" class="btn sm" data-act="open" data-attempt="${r.attempt_id}">${r.graded ? '답안 보기' : '채점하기'}</button>
+               <button type="button" class="btn sm ghost" data-act="delete" data-attempt="${r.attempt_id}">삭제</button>`}</td>
         </tr>`).join('')}</tbody></table></div>`;
   }
 
