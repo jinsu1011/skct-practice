@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '15';
+  const VERSION = '16';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -109,7 +109,7 @@
                 <div class="viewer-bar">
                   <div class="vb-group" data-for="url">
                     <button type="button" id="url-reload">처음 페이지로</button>
-                    <span class="vb-text muted">문제 영역 안에서 스크롤·페이지 이동이 그대로 됩니다.</span>
+                    <span class="vb-text muted" id="sync-state">문제 영역 안에서 스크롤·페이지 이동이 그대로 됩니다.</span>
                   </div>
                 </div>
                 <div class="stage" id="stage"></div>
@@ -324,10 +324,97 @@
     startCountdown(SAMPLE_SEC, startTest, false);
   }
 
+  // ---------- 링커리어 문항 번호 연동 ----------
+  // 문제 영역(iframe)은 같은 사이트라 안을 읽고 누를 수 있다.
+  // · 우리 [다음] → 링커리어의 다음(›) 버튼도 누름
+  // · 링커리어에서 직접 넘기면 → 위 진행 숫자·선지가 따라감
+  const SYNC = { base: null, last: null, timer: null };
+
+  const frameDoc = () => {
+    try { return $('#stage iframe')?.contentDocument || null; } catch { return null; }
+  };
+
+  // 화면의 "5번" 글자 또는 번호 입력칸(5)에서 현재 문항 번호를 읽는다
+  function readNumber(doc) {
+    // "5번", "5번 / 100" 처럼 보이는 요소 (글자가 여러 조각으로 나뉘어 있어도 찾도록 요소 단위로 확인)
+    for (const el of doc.body.querySelectorAll('*')) {
+      if (el.children.length > 3) continue;
+      const m = el.textContent.trim().match(/^(\d{1,3})\s*번(?:\s*\/\s*\d{1,3})?$/);
+      if (m && el.offsetParent !== null) return Number(m[1]);
+    }
+    const input = [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && i.offsetParent !== null);
+    return input ? Number(input.value) : null;
+  }
+
+  const clickable = (el) => el && el.matches('button, a, [role=button], [onclick]') ? el : el?.closest?.('button, a, [role=button]');
+
+  // 번호 입력칸 바로 뒤에 있는 버튼 → 다음(›). 없으면 '다음'/'next' 이름표가 붙은 버튼
+  function findNextButton(doc) {
+    const input = [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && i.offsetParent !== null);
+    if (input) {
+      let box = input.parentElement;
+      for (let depth = 0; box && depth < 4; depth += 1, box = box.parentElement) {
+        const btns = [...box.querySelectorAll('button, a, [role=button]')].filter((b) => b.offsetParent !== null);
+        const after = btns.find((b) => input.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+        if (after) return after;
+      }
+    }
+    const named = [...doc.querySelectorAll('button, a, [role=button], [aria-label], [title]')]
+      .find((b) => /다음|next/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`) && b.offsetParent !== null);
+    return clickable(named);
+  }
+
+  function setSyncState(text) {
+    $('#sync-state').textContent = text;
+  }
+
+  function pollSync() {
+    if (S.phase !== 'test') return;
+    const doc = frameDoc();
+    const num = doc?.body ? readNumber(doc) : null;
+    if (num == null) {
+      setSyncState('링커리어 문항 번호를 찾지 못해 연동이 꺼져 있습니다. 문제는 직접 넘겨 주세요.');
+      return;
+    }
+    if (SYNC.base == null) SYNC.base = num - S.q;           // 시작할 때 보이던 문항 = 1번째
+    setSyncState(`링커리어 ${num}번 ↔ 이 시험 ${S.q + 1}번째 문항 (연동 중)`);
+    if (num === SYNC.last) return;
+    SYNC.last = num;
+    const q = num - SYNC.base;
+    if (q === S.q || q < 0 || q >= S.sec.count) return;
+    // 링커리어에서 직접 넘긴 경우: 지금 문항을 저장하고 그 문항으로 이동
+    captureNote();
+    recordTime();
+    S.q = q;
+    showQuestion();
+    const memo = S.notes[q]?.memo;
+    if (memo) $('#memo').value = memo;
+  }
+
+  function startSync() {
+    SYNC.base = null;
+    SYNC.last = null;
+    clearInterval(SYNC.timer);
+    SYNC.timer = setInterval(pollSync, 400);
+  }
+
+  function stopSync() {
+    clearInterval(SYNC.timer);
+    SYNC.timer = null;
+  }
+
+  // 우리 [다음]을 누르면 링커리어도 다음 문항으로
+  function advanceLinkareer() {
+    const doc = frameDoc();
+    const btn = doc && findNextButton(doc);
+    if (btn) btn.click();
+  }
+
   function startTest() {
     closeModal(false);
     S.phase = 'test';
     S.q = 0;
+    startSync();
     $('#exam-title').textContent = S.sec.name;
     $('#sample-area').hidden = true;
     $('#viewer').hidden = false;
@@ -371,6 +458,7 @@
         recordTime();
         S.q += 1;
         showQuestion();
+        advanceLinkareer();
       }
     } finally {
       S.busy = false;
@@ -388,6 +476,7 @@
     captureNote();
     recordTime();
     stopCountdown();
+    stopSync();
     S.phase = 'end';
     closeModal(false);
     if (reason === 'timeup') {
@@ -434,6 +523,7 @@
       if (!ok) return;
     }
     stopCountdown();
+    stopSync();
     S.phase = 'setup';
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     host.remove();
