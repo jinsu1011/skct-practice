@@ -182,7 +182,7 @@
     T.paused = false;
     paintPause();
     S.phase = 'setup';
-    $('#progress-fill').style.width = '0';
+    setProgress(0, 0);
     $('#exam-timer').classList.remove('warn', 'paused');
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     $('#btn-last').hidden = !store.get('skct-last-result');
@@ -363,7 +363,7 @@
       <div class="sample-q">${sm.html}</div>
       <details class="sample-ans"><summary>정답 보기</summary><p>정답 ${CIRCLED[sm.answer]} — ${sm.explain}</p></details>`;
 
-    setProgress(0);
+    setProgress(0, 0);
     renderChoices(sm.choices);
     $('#btn-next').textContent = '본 검사 시작';
     clearTools();
@@ -393,7 +393,7 @@
 
   function showQuestion() {
     const sec = S.plan[S.si];
-    setProgress(S.q / sec.count);
+    setProgress(S.q + 1, sec.count);
     paintChoices(S.answers[S.si][S.q]);
     $('#btn-next').textContent = S.q === sec.count - 1 ? '제출' : '다음';
     clearTools();
@@ -411,8 +411,11 @@
     S.qStart = Date.now();
   }
 
-  function setProgress(ratio) {
-    $('#progress-fill').style.width = `${Math.round(ratio * 1000) / 10}%`;
+  // 빨간 바 아래 가운데: '현재 문항 / 전체' 숫자와 게이지 (total 0이면 숨김)
+  function setProgress(n, total) {
+    $('#progress').classList.toggle('off', !total);
+    $('#progress-count').textContent = `${n} / ${total}`;
+    $('#progress-fill').style.width = total ? `${Math.round((n / total) * 1000) / 10}%` : '0';
   }
 
   function recordTime() {
@@ -479,7 +482,7 @@
     stopCountdown();
     S.phase = 'between';
     closeModal(false);
-    setProgress(1);
+    setProgress(S.plan[S.si].count, S.plan[S.si].count);
     $('#exam-timer').classList.remove('warn');
 
     if (reason === 'timeup') {
