@@ -302,6 +302,7 @@ input, textarea { font: inherit; color: inherit; }
 /* ---------- 로그인 ---------- */
 .auth { flex: 1; display: grid; place-items: center; padding: 40px 16px; background: var(--soft); }
 .auth-card { width: min(420px, 100%); padding: 32px 30px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
+.auth-logo { display: block; width: 56px; height: 56px; margin-bottom: 14px; border-radius: 14px; }
 .auth-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #fff0f2; color: var(--red); font-size: 12px; font-weight: 700; letter-spacing: 1px; }
 .auth-card h1 { margin-top: 10px; font-size: 24px; }
 .auth-card > .muted { margin-top: 6px; font-size: 14px; }

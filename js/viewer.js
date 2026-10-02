@@ -1,8 +1,25 @@
 // 문제 영역 뷰어: PDF · 이미지 · 웹사이트(iframe) · 종이 책(안내 문구)
 window.Viewer = (() => {
-  if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  // PDF 모듈(약 300KB)은 PDF를 처음 불러올 때만 받아온다
+  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  let pdfjsReady = null;
+
+  function loadPdfJs() {
+    if (window.pdfjsLib) return Promise.resolve();
+    pdfjsReady ||= new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `${PDFJS}pdf.min.js`;
+      s.onload = () => {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS}pdf.worker.min.js`;
+        resolve();
+      };
+      s.onerror = () => {
+        pdfjsReady = null;
+        reject(new Error('PDF 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하세요.'));
+      };
+      document.head.append(s);
+    });
+    return pdfjsReady;
   }
 
   let root, stage, pgInfo, zoomInfo;
@@ -52,7 +69,7 @@ window.Viewer = (() => {
   }
 
   async function loadPdf(file) {
-    if (!window.pdfjsLib) throw new Error('PDF 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+    await loadPdfJs();
     const data = new Uint8Array(await file.arrayBuffer());
     const doc = await pdfjsLib.getDocument({ data }).promise;
     reset();

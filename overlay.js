@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '10';
+  const VERSION = '12';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
