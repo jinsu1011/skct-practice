@@ -3,13 +3,22 @@
 // 그 위에 시험 화면(타이머·선지·메모장·그림판·계산기)을 씌운다.
 // 같은 사이트 안에서 페이지를 다시 띄우는 것이라 로그인 상태가 유지된다.
 (() => {
-  if (window.__skctOverlay) {
-    window.__skctOverlay.show();
+  const VERSION = '20';
+  const prev = window.__skctOverlay;
+  if (prev && prev.version === VERSION) {
+    prev.show();
     return;
+  }
+  if (prev) {
+    // 같은 탭에 예전 버전이 떠 있으면 닫고 새 버전으로 바꾼다
+    try { prev.destroy?.(); } catch { /* 예전 버전은 정리 기능이 없음 */ }
+    [...document.documentElement.children].forEach((el) => {
+      if (el.shadowRoot?.querySelector('#o-setup')) el.remove();
+    });
+    document.documentElement.style.overflow = '';
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '18';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -340,14 +349,33 @@
   };
 
   // 화면의 "5번" 글자 또는 번호 입력칸(5)에서 현재 문항 번호를 읽는다
+  // "5번", "5번 / 100" 처럼 보이는 요소 (글자가 여러 조각으로 나뉘어 있어도 찾도록 요소 단위로 확인)
+  const NUM_RE = /^(\d{1,3})\s*번(?:\s*\/\s*\d{1,3})?$/;
+  let numEl = null;   // 한 번 찾은 번호 요소를 기억해, 0.5초마다 페이지 전체를 훑지 않도록 함
+
+  function numberOf(el) {
+    if (!el?.isConnected || el.offsetParent === null) return null;
+    if (el.tagName === 'INPUT') return /^\d{1,3}$/.test(el.value) ? Number(el.value) : null;
+    const m = el.textContent.trim().match(NUM_RE);
+    return m ? Number(m[1]) : null;
+  }
+
   function readNumber(doc) {
-    // "5번", "5번 / 100" 처럼 보이는 요소 (글자가 여러 조각으로 나뉘어 있어도 찾도록 요소 단위로 확인)
+    if (numEl && numEl.ownerDocument === doc) {
+      const n = numberOf(numEl);
+      if (n != null) return n;
+    }
+    numEl = null;
     for (const el of doc.body.querySelectorAll('*')) {
       if (el.children.length > 3) continue;
-      const m = el.textContent.trim().match(/^(\d{1,3})\s*번(?:\s*\/\s*\d{1,3})?$/);
-      if (m && el.offsetParent !== null) return Number(m[1]);
+      const n = numberOf(el);
+      if (n != null && el.tagName !== 'INPUT') {
+        numEl = el;
+        return n;
+      }
     }
-    const input = [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && i.offsetParent !== null);
+    const input = [...doc.querySelectorAll('input')].find((i) => numberOf(i) != null);
+    if (input) numEl = input;
     return input ? Number(input.value) : null;
   }
 
@@ -547,10 +575,14 @@
   }
 
   function startSync() {
-    SYNC.base = null;
-    SYNC.last = null;
+    // 시작할 때 보이는 문항 = 이 시험의 1번째 (페이지가 아직 안 열렸으면 처음 읽을 때 정함)
+    const doc = frameDoc();
+    const now = doc?.body ? readNumber(doc) : null;
+    SYNC.base = now;
+    SYNC.last = now;
+    if (now != null) scheduleZoom();
     clearInterval(SYNC.timer);
-    SYNC.timer = setInterval(pollSync, 400);
+    SYNC.timer = setInterval(pollSync, 500);
   }
 
   function stopSync() {
@@ -729,10 +761,11 @@
   };
   // 사이트 탭이 열리면 'skct-import-ready'를 보내오고, 그때 기록(메모·그림 포함)을 넘겨준다
   const siteOrigin = new URL(BASE).origin;
-  window.addEventListener('message', (e) => {
+  const onMessage = (e) => {
     if (e.origin !== siteOrigin || e.data?.type !== 'skct-import-ready' || !S.result) return;
     e.source.postMessage({ type: 'skct-import', result: S.result }, siteOrigin);
-  });
+  };
+  window.addEventListener('message', onMessage);
 
   $('#o-save').onclick = () => {
     // 주소에는 그림을 뺀 기록만 담고(msg 표시), 그림은 새 탭이 요청하면 메시지로 보낸다
@@ -767,7 +800,8 @@
     saveZoom();
     applyZoom();
   };
-  window.addEventListener('resize', () => scheduleZoom(250));
+  const onResize = () => scheduleZoom(250);
+  window.addEventListener('resize', onResize);
   $('#btn-pause').onclick = () => {
     if (!['sample', 'test'].includes(S.phase)) return;
     if (T.paused) {
@@ -832,5 +866,17 @@
     .catch((err) => toast(err.message));
 
   showLayer('setup');
-  window.__skctOverlay = { show };
+  // 새 버전으로 교체될 때 타이머·이벤트까지 깨끗이 정리
+  function destroy() {
+    stopCountdown();
+    stopSync();
+    clearTimeout(ZOOM.timer);
+    window.removeEventListener('beforeunload', onLeave);
+    window.removeEventListener('resize', onResize);
+    window.removeEventListener('message', onMessage);
+    host.remove();
+    document.documentElement.style.overflow = prevOverflow;
+  }
+
+  window.__skctOverlay = { show, destroy, version: VERSION };
 })();
