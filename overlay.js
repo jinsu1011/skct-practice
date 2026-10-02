@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '16';
+  const VERSION = '17';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -109,6 +109,10 @@
                 <div class="viewer-bar">
                   <div class="vb-group" data-for="url">
                     <button type="button" id="url-reload">처음 페이지로</button>
+                    <button type="button" id="zoom-out" title="축소">−</button>
+                    <span class="vb-text" id="zoom-info">100%</span>
+                    <button type="button" id="zoom-in" title="확대">+</button>
+                    <button type="button" id="zoom-fit" class="on" title="문제 칸에 맞춰 자동 확대">화면 맞춤</button>
                     <span class="vb-text muted" id="sync-state">문제 영역 안에서 스크롤·페이지 이동이 그대로 됩니다.</span>
                   </div>
                 </div>
@@ -282,6 +286,7 @@
     // 최상위 이동(프레임 탈출)만 막고 나머지는 원래 페이지처럼 동작
     f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads');
     f.src = pageUrl;
+    f.addEventListener('load', () => scheduleZoom(600));
     $('#stage').append(f);
   }
 
@@ -346,22 +351,59 @@
     return input ? Number(input.value) : null;
   }
 
-  const clickable = (el) => el && el.matches('button, a, [role=button], [onclick]') ? el : el?.closest?.('button, a, [role=button]');
+  const visible = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  };
+  const numberInput = (doc) => [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && visible(i));
 
-  // 번호 입력칸 바로 뒤에 있는 버튼 → 다음(›). 없으면 '다음'/'next' 이름표가 붙은 버튼
+  // 번호 입력칸 오른쪽에 있는 '눌리는' 요소 → 다음(›). 버튼 태그가 아니라 아이콘(div+svg)이어도 찾는다
   function findNextButton(doc) {
-    const input = [...doc.querySelectorAll('input')].find((i) => /^\d{1,3}$/.test(i.value) && i.offsetParent !== null);
+    const input = numberInput(doc);
     if (input) {
+      const ir = input.getBoundingClientRect();
       let box = input.parentElement;
-      for (let depth = 0; box && depth < 4; depth += 1, box = box.parentElement) {
-        const btns = [...box.querySelectorAll('button, a, [role=button]')].filter((b) => b.offsetParent !== null);
-        const after = btns.find((b) => input.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-        if (after) return after;
+      for (let depth = 0; box && depth < 5; depth += 1, box = box.parentElement) {
+        const cands = [...box.querySelectorAll('*')].filter((el) => {
+          if (el === input || el.contains(input) || !visible(el)) return false;
+          const r = el.getBoundingClientRect();
+          return r.left >= ir.right - 2 && Math.abs((r.top + r.bottom) / 2 - (ir.top + ir.bottom) / 2) < 40;
+        });
+        cands.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+        const hit = cands.find((el) => el.matches('button, a, [role=button]') || getComputedStyle(el).cursor === 'pointer' || el.tagName.toLowerCase() === 'svg');
+        if (hit) return hit.closest('button, a, [role=button]') || hit;
       }
     }
-    const named = [...doc.querySelectorAll('button, a, [role=button], [aria-label], [title]')]
-      .find((b) => /다음|next/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`) && b.offsetParent !== null);
-    return clickable(named);
+    return [...doc.querySelectorAll('button, a, [role=button], [aria-label], [title]')]
+      .find((b) => /다음|next/i.test(`${b.getAttribute('aria-label') || ''} ${b.getAttribute('title') || ''}`) && visible(b)) || null;
+  }
+
+  // React 같은 화면도 반응하도록 실제 마우스 클릭과 같은 순서로 이벤트를 보낸다
+  function realClick(el) {
+    const win = el.ownerDocument.defaultView;
+    const r = el.getBoundingClientRect();
+    const opts = { bubbles: true, cancelable: true, view: win, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0 };
+    el.dispatchEvent(new win.PointerEvent('pointerdown', opts));
+    el.dispatchEvent(new win.MouseEvent('mousedown', opts));
+    el.dispatchEvent(new win.PointerEvent('pointerup', opts));
+    el.dispatchEvent(new win.MouseEvent('mouseup', opts));
+    el.dispatchEvent(new win.MouseEvent('click', opts));
+  }
+
+  // 번호 입력칸에 다음 번호를 넣고 Enter (버튼으로 안 넘어갈 때의 대안)
+  function typeNumber(doc, n) {
+    const input = numberInput(doc);
+    if (!input) return;
+    const win = doc.defaultView;
+    const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, 'value').set;
+    input.focus();
+    setter.call(input, String(n));
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      input.dispatchEvent(new win.KeyboardEvent(type, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    }
+    input.blur();
   }
 
   function setSyncState(text) {
@@ -380,6 +422,7 @@
     setSyncState(`링커리어 ${num}번 ↔ 이 시험 ${S.q + 1}번째 문항 (연동 중)`);
     if (num === SYNC.last) return;
     SYNC.last = num;
+    scheduleZoom();
     const q = num - SYNC.base;
     if (q === S.q || q < 0 || q >= S.sec.count) return;
     // 링커리어에서 직접 넘긴 경우: 지금 문항을 저장하고 그 문항으로 이동
@@ -389,6 +432,63 @@
     showQuestion();
     const memo = S.notes[q]?.memo;
     if (memo) $('#memo').value = memo;
+  }
+
+  // ---------- 문제 크기 맞춤 (링커리어 확대는 문항을 넘기면 초기화되므로 여기서 유지) ----------
+  const ZOOM = { auto: true, value: 1, timer: null };
+  try {
+    const z = JSON.parse(localStorage.getItem('skct-overlay-zoom'));
+    if (z) Object.assign(ZOOM, { auto: z.auto !== false, value: Number(z.value) || 1 });
+  } catch { /* 없음 */ }
+  const saveZoom = () => { try { localStorage.setItem('skct-overlay-zoom', JSON.stringify({ auto: ZOOM.auto, value: ZOOM.value })); } catch { /* 저장 불가 */ } };
+
+  // 진하게 보이는 긴 글(지문·문제·선지)이 차지하는 영역을 재서, 그 영역이 문제 칸 폭에 꽉 차도록 배율 계산
+  function measureFit(doc) {
+    const win = doc.defaultView;
+    const vw = doc.documentElement.clientWidth;
+    let left = Infinity;
+    let right = 0;
+    const walker = doc.createTreeWalker(doc.body, win.NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || n.nodeValue.trim().length < 12 || el.offsetParent === null) continue;   // 짧은 글자·고정 메뉴 제외
+      const rgb = (win.getComputedStyle(el).color.match(/\d+/g) || []).map(Number);
+      if (rgb.length >= 3 && (rgb[0] + rgb[1] + rgb[2]) / 3 > 150) continue;            // 연한 글자(워터마크·출처) 제외
+      const range = doc.createRange();
+      range.selectNodeContents(n);
+      const r = range.getBoundingClientRect();
+      if (!r.width) continue;
+      left = Math.min(left, r.left);
+      right = Math.max(right, r.right);
+    }
+    if (!right || right <= left) return 1;
+    const z = (vw - 24) / (right + Math.min(left, 40));
+    return Math.max(1, Math.min(2, Math.round(z * 20) / 20));
+  }
+
+  function applyZoom() {
+    const doc = frameDoc();
+    if (!doc?.documentElement) return;
+    const html = doc.documentElement;
+    if (ZOOM.auto) {
+      html.style.zoom = '1';
+      ZOOM.value = measureFit(doc);
+    }
+    html.style.zoom = String(ZOOM.value);
+    $('#zoom-info').textContent = `${Math.round(ZOOM.value * 100)}%${ZOOM.auto ? ' (맞춤)' : ''}`;
+    $('#zoom-fit').classList.toggle('on', ZOOM.auto);
+  }
+
+  const scheduleZoom = (ms = 350) => {
+    clearTimeout(ZOOM.timer);
+    ZOOM.timer = setTimeout(applyZoom, ms);
+  };
+
+  function setZoom(v) {
+    ZOOM.auto = false;
+    ZOOM.value = Math.max(0.6, Math.min(2.5, Math.round(v * 20) / 20));
+    saveZoom();
+    applyZoom();
   }
 
   function startSync() {
@@ -403,11 +503,23 @@
     SYNC.timer = null;
   }
 
-  // 우리 [다음]을 누르면 링커리어도 다음 문항으로
-  function advanceLinkareer() {
+  // 우리 [다음]을 누르면 링커리어도 다음 문항으로 (버튼 → 안 되면 번호 입력)
+  async function advanceLinkareer() {
     const doc = frameDoc();
-    const btn = doc && findNextButton(doc);
-    if (btn) btn.click();
+    if (!doc?.body) return;
+    const before = readNumber(doc);
+    if (before == null) return;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const moved = () => readNumber(frameDoc()) !== before;
+    const btn = findNextButton(doc);
+    if (btn) {
+      realClick(btn);
+      await wait(700);
+      if (moved()) return;
+    }
+    typeNumber(doc, before + 1);
+    await wait(700);
+    if (!moved()) toast('링커리어 문항을 자동으로 넘기지 못했습니다. 링커리어의 › 버튼을 직접 눌러 주세요.');
   }
 
   function startTest() {
@@ -593,6 +705,14 @@
     }
   };
   $('#url-reload').onclick = () => { const f = $('#stage iframe'); if (f) f.src = pageUrl; };
+  $('#zoom-in').onclick = () => setZoom(ZOOM.value + 0.1);
+  $('#zoom-out').onclick = () => setZoom(ZOOM.value - 0.1);
+  $('#zoom-fit').onclick = () => {
+    ZOOM.auto = true;
+    saveZoom();
+    applyZoom();
+  };
+  window.addEventListener('resize', () => scheduleZoom(250));
   $('#btn-pause').onclick = () => {
     if (!['sample', 'test'].includes(S.phase)) return;
     if (T.paused) {
