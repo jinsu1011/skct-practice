@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SKCT 연습</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ① 설정 -->
+  <section id="screen-setup" class="screen active">
+    <header class="topbar">
+      <div class="tb-left">SKCT 연습</div>
+      <div class="tb-center"></div>
+      <div class="tb-right"></div>
+    </header>
+    <main class="setup">
+      <div class="setup-head">
+        <h1>SKCT 실전 연습</h1>
+        <p>문제 자료(PDF·이미지·웹사이트)를 불러온 뒤, 실제 시험과 같은 화면에서 시간을 재며 답안을 체크하세요.</p>
+      </div>
+
+      <div class="card">
+        <h2><span class="step-no">1</span>문제 자료</h2>
+        <div class="seg" id="src-tabs">
+          <button type="button" data-mode="file">PDF · 이미지</button>
+          <button type="button" data-mode="url">웹사이트</button>
+          <button type="button" data-mode="none">종이 책 (답안지만)</button>
+        </div>
+
+        <div class="src-pane" data-pane="file">
+          <label class="drop" id="drop">
+            <input type="file" id="file-input" accept="application/pdf,.pdf,image/*" multiple hidden>
+            <strong>PDF 또는 이미지 파일을 여기에 끌어다 놓거나 클릭해서 선택</strong>
+            <span>이미지를 여러 장 고르면 파일 이름 순서대로 한 장이 한 페이지가 됩니다.</span>
+          </label>
+          <div id="file-info" class="file-info"></div>
+        </div>
+
+        <div class="src-pane" data-pane="url" hidden>
+          <input type="text" id="url-input" class="text-input" placeholder="https://linkareer.com/...  (공통 문제 페이지 주소)">
+          <p class="hint">영역별로 주소가 다르면 아래 표의 <b>주소</b> 칸에 각각 입력하세요. 사이트가 시험 화면 안에 표시되지 않으면 시험 중 <b>[새 창으로 열기]</b>를 누르세요.</p>
+        </div>
+
+        <div class="src-pane" data-pane="none" hidden>
+          <p class="hint">문제 영역에는 현재 문항 번호만 크게 표시됩니다. 종이 문제집을 풀면서 타이머·답안지·메모·계산기만 쓸 때 고르세요.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="step-no">2</span>영역 설정</h2>
+        <div class="table-wrap">
+          <table class="sec-table" id="sec-table">
+            <thead>
+              <tr>
+                <th>응시</th>
+                <th>영역</th>
+                <th>문항 수</th>
+                <th>시간(분)</th>
+                <th class="c-file">시작 쪽</th>
+                <th class="c-file" title="0이면 페이지를 직접 넘깁니다">쪽당 문항 수</th>
+                <th class="c-url">주소 (선택)</th>
+              </tr>
+            </thead>
+            <tbody id="sec-rows"></tbody>
+          </table>
+        </div>
+        <p class="hint c-file-hint">‘쪽당 문항 수’를 입력하면 다음 문항으로 넘어갈 때 PDF 페이지도 자동으로 넘어갑니다. 0이면 페이지를 직접 넘깁니다.</p>
+        <p class="hint">진행 순서: 대기 1분 → (영역마다) 유형 예시 1분 → 본 검사</p>
+      </div>
+
+      <div class="setup-actions">
+        <button type="button" id="btn-last" class="btn" hidden>지난 답안 보기</button>
+        <button type="button" id="btn-start" class="btn primary lg">시험 시작</button>
+      </div>
+    </main>
+  </section>
+
+  <!-- ② 대기 -->
+  <section id="screen-wait" class="screen">
+    <header class="topbar">
+      <div class="tb-left">SKCT 연습</div>
+      <div class="tb-center"><span class="tl-label">검사 시작까지</span><span class="tl-time" id="wait-timer">01:00</span></div>
+      <div class="tb-right"></div>
+    </header>
+    <main class="wait">
+      <h1>잠시 후 검사가 시작됩니다</h1>
+      <p class="sub">실제 시험은 약 30분간 대기하지만, 연습에서는 1분으로 줄였습니다.</p>
+      <div class="wait-row">
+        <div class="wait-count" id="wait-count">01:00</div>
+        <button type="button" id="btn-skip-wait" class="btn primary lg">바로 진행 ▶</button>
+      </div>
+      <ul class="notice">
+        <li>영역마다 <b>1분간 유형 예시 문항</b>이 나오고, 1분이 지나면 본 검사가 바로 시작됩니다.</li>
+        <li>다음 문항으로 넘어가면 <b>이전 문항으로 돌아올 수 없습니다.</b></li>
+        <li>문항을 넘기면 메모장과 그림판 내용이 지워집니다.</li>
+        <li>제한 시간이 끝나면 답안이 자동으로 제출됩니다.</li>
+      </ul>
+      <div class="plan" id="wait-plan"></div>
+    </main>
+  </section>
+
+  <!-- ③ 시험 (유형 예시 + 본 검사) -->
+  <section id="screen-exam" class="screen">
+    <header class="topbar">
+      <div class="tb-left" id="exam-title"></div>
+      <div class="tb-center"><span class="tl-label">남은 시간</span><span class="tl-time" id="exam-timer">00:00</span></div>
+      <div class="tb-right"></div>
+    </header>
+    <div class="exam-body">
+      <div class="exam-main">
+        <div class="q-area">
+          <div id="sample-area" class="sample" hidden></div>
+          <div id="viewer" class="viewer" data-mode="none">
+            <div class="viewer-bar">
+              <div class="vb-group" data-for="pages">
+                <button type="button" id="pg-prev" title="이전 쪽">‹</button>
+                <span id="pg-info" class="vb-text">1 / 1</span>
+                <button type="button" id="pg-next" title="다음 쪽">›</button>
+              </div>
+              <div class="vb-group" data-for="pages">
+                <button type="button" id="zoom-out" title="축소">−</button>
+                <span id="zoom-info" class="vb-text">100%</span>
+                <button type="button" id="zoom-in" title="확대">+</button>
+                <button type="button" id="fit-width" class="on">폭 맞춤</button>
+                <button type="button" id="fit-page">쪽 맞춤</button>
+              </div>
+              <div class="vb-group" data-for="url">
+                <button type="button" id="url-reload">새로고침</button>
+                <button type="button" id="url-popup">새 창으로 열기</button>
+                <span class="vb-text muted">화면이 비어 있으면 [새 창으로 열기]를 누르세요.</span>
+              </div>
+            </div>
+            <div class="stage" id="stage"></div>
+          </div>
+        </div>
+        <div class="answer-bar">
+          <div class="q-info" id="q-info"></div>
+          <div class="choices" id="choices"></div>
+          <button type="button" id="btn-next" class="btn primary next">다음</button>
+        </div>
+      </div>
+
+      <aside class="tools">
+        <div class="panel pad">
+          <div class="tabs" id="pad-tabs">
+            <button type="button" data-tab="memo" class="on">메모장</button>
+            <button type="button" data-tab="draw">그림판</button>
+          </div>
+          <textarea id="memo" placeholder="메모를 입력하세요" spellcheck="false"></textarea>
+          <div id="draw-wrap" class="draw-wrap" hidden>
+            <div class="draw-tools">
+              <button type="button" data-tool="pen" class="on">펜</button>
+              <button type="button" data-tool="eraser">지우개</button>
+              <button type="button" data-tool="clear">모두 지우기</button>
+            </div>
+            <div class="draw-box"><canvas id="draw"></canvas></div>
+          </div>
+        </div>
+        <div class="panel calc" id="calc" tabindex="0" aria-label="계산기"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ④ 종료 -->
+  <section id="screen-end" class="screen">
+    <header class="topbar">
+      <div class="tb-left" id="end-title"></div>
+      <div class="tb-center"><span class="tl-label">남은 시간</span><span class="tl-time">00:00</span></div>
+      <div class="tb-right"></div>
+    </header>
+    <main class="end">
+      <h1>수고하셨습니다. 모든 검사가 종료되었습니다.<br>종료 버튼을 눌러 작성한 답안을 확인해 주십시오.</h1>
+      <p class="end-note">연습용 사이트입니다. 답안은 이 브라우저에만 저장되며 외부로 전송되지 않습니다.</p>
+      <ol class="steps" id="steps">
+        <li><i></i><span>검사 종료</span></li>
+        <li><i></i><span>답안 저장</span></li>
+        <li><i></i><span>확인 완료</span></li>
+      </ol>
+      <button type="button" id="btn-end" class="btn primary pill">종료</button>
+    </main>
+  </section>
+
+  <!-- ⑤ 내 답안 -->
+  <section id="screen-result" class="screen">
+    <header class="topbar">
+      <div class="tb-left">내 답안</div>
+      <div class="tb-center"></div>
+      <div class="tb-right"></div>
+    </header>
+    <main class="result">
+      <div class="result-head">
+        <div>
+          <h1>작성한 답안</h1>
+          <p id="result-date" class="muted"></p>
+          <p class="hint">책·해설지의 정답과 비교해 채점하세요. 영역별 <b>정답 입력</b> 칸에 정답 번호를 순서대로 넣으면(예: 3 2 5 1 4 또는 32514) O/X가 바로 표시됩니다.</p>
+        </div>
+        <div class="result-actions">
+          <button type="button" id="btn-copy" class="btn">답안 복사</button>
+          <button type="button" id="btn-print" class="btn">인쇄</button>
+          <button type="button" id="btn-restart" class="btn primary">다시 연습하기</button>
+        </div>
+      </div>
+      <div id="result-list"></div>
+    </main>
+  </section>
+
+  <!-- 팝업 -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title"></h3>
+      <div id="modal-body" class="modal-body"></div>
+      <div id="modal-btns" class="modal-btns"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="js/samples.js"></script>
+  <script src="js/viewer.js"></script>
+  <script src="js/sketch.js"></script>
+  <script src="js/calc.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
