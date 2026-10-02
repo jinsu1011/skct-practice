@@ -3,13 +3,16 @@ window.Admin = (() => {
   const { $, esc, pct, duration, dateText, showScreen, modal, toast, downloadCsv } = UI;
   const { SECTIONS } = Stats;
 
-  const A = { users: [], records: [], logs: [], rows: [], tab: 'students', sort: { key: 'campus', dir: 1 }, detailUser: null };
+  const A = { users: [], records: [], logs: [], rows: [], settings: {}, tab: 'students', sort: { key: 'campus', dir: 1 }, detailUser: null };
 
   async function open() {
     showScreen('admin');
     $('#admin-body').innerHTML = '<p class="empty">불러오는 중…</p>';
     try {
-      const [users, records, logs] = await Promise.all([Api.adminUsers(), Api.adminRecords(), Api.adminLogs(500)]);
+      const [users, records, logs, settings] = await Promise.all([
+        Api.adminUsers(), Api.adminRecords(), Api.adminLogs(500), Api.adminSettings().catch(() => ({})),
+      ]);
+      A.settings = settings || {};
       A.users = users.filter((u) => !u.is_admin);
       A.records = records;
       A.logs = logs;
@@ -135,12 +138,58 @@ window.Admin = (() => {
       <p class="hint">최근 500건까지 표시합니다.</p>`;
   }
 
+  function settingsPanel() {
+    const code = A.settings.signup_code || '';
+    return `
+      <section class="dash-card">
+        <h3>가입 코드</h3>
+        <p class="hint">가입 코드를 정하면 코드를 아는 사람만 회원가입할 수 있습니다. SKALA 수강생에게만 코드를 공유하세요. 비워 두면 누구나 가입할 수 있습니다. 이미 가입한 학생에게는 영향이 없습니다.</p>
+        <div class="setting-row">
+          <input type="text" id="set-code" class="text-input" value="${esc(code)}" placeholder="예: SKALA2026" maxlength="40" autocomplete="off">
+          <button type="button" class="btn primary" id="btn-save-code">저장</button>
+        </div>
+        <p class="setting-state">${code ? `현재: 가입 코드 <b>${esc(code)}</b> 필요` : '현재: 누구나 가입 가능'}</p>
+      </section>`;
+  }
+
   function render() {
     document.querySelectorAll('#admin-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === A.tab));
+    $('.admin-bar').classList.toggle('no-filter', A.tab === 'settings');
     const rows = filtered();
     $('#admin-body').innerHTML = A.tab === 'students' ? studentsTable(rows)
       : A.tab === 'classes' ? classSummary(rows)
-        : logsTable();
+        : A.tab === 'logs' ? logsTable()
+          : settingsPanel();
+  }
+
+  async function saveCode() {
+    const code = $('#set-code').value.trim();
+    try {
+      await Api.adminSetSignupCode(code);
+      A.settings.signup_code = code || null;
+      render();
+      toast(code ? '가입 코드를 저장했습니다.' : '가입 코드를 해제했습니다.');
+    } catch (err) {
+      if (!Account.handleError(err)) toast(err.message);
+    }
+  }
+
+  async function deleteUser() {
+    const u = A.detailUser;
+    if (!u) return;
+    const ok = await modal({
+      title: '계정 삭제',
+      body: `<p><b>${esc(u.name)}</b>(${esc(u.username)}) 학생의 계정과 <b>모든 응시·채점·접속 기록</b>을 삭제합니다.</p><p class="red">삭제하면 되돌릴 수 없습니다.</p>`,
+      buttons: [{ label: '취소', value: false }, { label: '삭제', value: true, primary: true }],
+    });
+    if (!ok) return;
+    try {
+      await Api.adminDeleteUser(u.id);
+      toast('계정을 삭제했습니다.');
+      open();
+    } catch (err) {
+      if (!Account.handleError(err)) toast(err.message);
+    }
   }
 
   // ---------- 학생 상세 ----------
@@ -223,6 +272,7 @@ window.Admin = (() => {
         A.sort = { key: k, dir: A.sort.key === k ? -A.sort.dir : 1 };
         return render();
       }
+      if (e.target.closest('#btn-save-code')) return saveCode();
       const tr = e.target.closest('tr[data-user]');
       if (tr) openUser(tr.dataset.user);
     });
@@ -231,6 +281,10 @@ window.Admin = (() => {
     $('#btn-admin-csv-records').addEventListener('click', csvRecords);
     $('#btn-admin-back').addEventListener('click', () => showScreen('admin'));
     $('#btn-admin-reset-pw').addEventListener('click', resetPassword);
+    $('#btn-admin-delete-user').addEventListener('click', deleteUser);
+    $('#admin-body').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.id === 'set-code') saveCode();
+    });
   }
 
   return { init, open };

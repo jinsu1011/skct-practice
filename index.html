@@ -3,13 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SKCT 연습</title>
+  <title>SKCT 실전 연습 · SKALA</title>
+  <meta name="description" content="SKCT 온라인 시험과 같은 화면에서 시간을 재며 연습하고, 영역별 정답률·취약 영역 등 학습 현황을 확인하는 SKALA 연습 사이트">
+  <meta name="theme-color" content="#e4002b">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SKCT 실전 연습 · SKALA">
+  <meta property="og:description" content="실제 SKCT와 같은 화면에서 시간 재며 연습하고, 내 학습 현황을 확인하세요.">
+  <meta property="og:url" content="https://jinsu1011.github.io/skct-practice/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e4002b'/%3E%3Ctext x='32' y='45' font-family='Arial,sans-serif' font-size='38' font-weight='700' fill='white' text-anchor='middle'%3ES%3C/text%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
+
+  <!-- 불러오는 중 -->
+  <section id="screen-loading" class="screen active">
+    <header class="topbar">
+      <div class="tb-left">SKCT 연습</div>
+      <div class="tb-center"></div>
+      <div class="tb-right"></div>
+    </header>
+    <main class="loading"><span class="spinner"></span>불러오는 중…</main>
+  </section>
 
   <!-- 로그인 / 회원가입 -->
   <section id="screen-login" class="screen">
@@ -32,6 +49,7 @@
           <label>비밀번호<input name="password" type="password" autocomplete="current-password" required></label>
           <p class="form-err" hidden></p>
           <button class="btn primary lg" type="submit">로그인</button>
+          <p class="form-hint">비밀번호를 잊었다면 운영진(관리자)에게 초기화를 요청하세요.</p>
         </form>
         <form id="form-signup" class="auth-form" novalidate hidden>
           <div class="row2">
@@ -54,11 +72,14 @@
           <label>아이디<input name="username" autocomplete="username" autocapitalize="none" maxlength="20" placeholder="영문 소문자·숫자·_ 4~20자" required></label>
           <label>비밀번호<input name="password" type="password" autocomplete="new-password" placeholder="6자 이상" required></label>
           <label>비밀번호 확인<input name="password2" type="password" autocomplete="new-password" required></label>
+          <label id="signup-code-row" hidden>가입 코드<input name="code" autocomplete="off" placeholder="운영진에게 받은 코드"></label>
+          <label class="agree"><input type="checkbox" name="agree"> <span>개인정보 수집·이용에 동의합니다. <button type="button" class="link js-privacy">내용 보기</button></span></label>
           <p class="form-err" hidden></p>
           <button class="btn primary lg" type="submit">가입하고 시작하기</button>
         </form>
       </div>
     </main>
+    <footer class="site-foot">SKALA · SKCT 실전 연습 <span>·</span> <button type="button" class="link js-privacy">개인정보 처리 안내</button></footer>
   </section>
 
   <!-- ① 설정 -->
@@ -69,6 +90,7 @@
       <div class="tb-right" id="user-bar"></div>
     </header>
     <main class="setup">
+      <p class="mobile-note">시험 화면은 PC·노트북 화면에 맞춰져 있습니다. 실전처럼 연습하려면 PC에서 접속하세요.</p>
       <div class="setup-head">
         <h1>SKCT 실전 연습</h1>
         <p>문제 자료(PDF·이미지·웹사이트)를 불러온 뒤, 실제 시험과 같은 화면에서 시간을 재며 답안을 체크하세요.</p>
@@ -142,6 +164,7 @@
         <button type="button" id="btn-start" class="btn primary lg">시험 시작</button>
       </div>
     </main>
+    <footer class="site-foot">SKALA · SKCT 실전 연습 <span>·</span> <button type="button" class="link js-privacy">개인정보 처리 안내</button></footer>
   </section>
 
   <!-- ② 대기 -->
@@ -299,6 +322,7 @@
         <div class="dash-actions">
           <button type="button" id="btn-stats-csv" class="btn">내 기록 CSV</button>
           <button type="button" id="btn-change-pw" class="btn">비밀번호 변경</button>
+          <button type="button" id="btn-delete-account" class="btn ghost">회원 탈퇴</button>
         </div>
       </div>
       <div id="stats-body"></div>
@@ -329,6 +353,7 @@
           <button type="button" data-tab="students" class="on">학생 현황</button>
           <button type="button" data-tab="classes">반별 요약</button>
           <button type="button" data-tab="logs">접속 기록</button>
+          <button type="button" data-tab="settings">설정</button>
         </div>
         <select id="f-campus"><option value="">전체 캠퍼스</option><option>광주</option><option>울산</option><option>판교</option></select>
         <select id="f-class"></select>
@@ -352,6 +377,7 @@
         </div>
         <div class="dash-actions">
           <button type="button" id="btn-admin-reset-pw" class="btn">비밀번호 초기화</button>
+          <button type="button" id="btn-admin-delete-user" class="btn ghost">계정 삭제</button>
         </div>
       </div>
       <div id="admin-user-body"></div>
@@ -370,16 +396,16 @@
   <div id="toast" class="toast" hidden></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <script src="js/config.js?v=8"></script>
-  <script src="js/api.js?v=7"></script>
-  <script src="js/ui.js?v=7"></script>
-  <script src="js/samples.js?v=7"></script>
-  <script src="js/viewer.js?v=7"></script>
-  <script src="js/sketch.js?v=7"></script>
-  <script src="js/calc.js?v=7"></script>
-  <script src="js/stats.js?v=7"></script>
-  <script src="js/account.js?v=7"></script>
-  <script src="js/admin.js?v=7"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/config.js?v=10"></script>
+  <script src="js/api.js?v=10"></script>
+  <script src="js/ui.js?v=10"></script>
+  <script src="js/samples.js?v=10"></script>
+  <script src="js/viewer.js?v=10"></script>
+  <script src="js/sketch.js?v=10"></script>
+  <script src="js/calc.js?v=10"></script>
+  <script src="js/stats.js?v=10"></script>
+  <script src="js/account.js?v=10"></script>
+  <script src="js/admin.js?v=10"></script>
+  <script src="js/app.js?v=10"></script>
 </body>
 </html>

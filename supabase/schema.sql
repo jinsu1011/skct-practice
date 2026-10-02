@@ -64,6 +64,11 @@ create table if not exists public.records (
   source      text
 );
 
+create table if not exists public.app_settings (
+  key         text primary key,
+  value       text not null
+);
+
 create index if not exists records_user_idx on public.records (user_id, created_at);
 create index if not exists login_logs_at_idx on public.login_logs (at desc);
 create index if not exists sessions_user_idx on public.sessions (user_id);
@@ -73,9 +78,14 @@ alter table public.sessions   enable row level security;
 alter table public.login_logs enable row level security;
 alter table public.visits     enable row level security;
 alter table public.records    enable row level security;
+alter table public.app_settings enable row level security;
 
-revoke all on public.users, public.sessions, public.login_logs, public.visits, public.records
+revoke all on public.users, public.sessions, public.login_logs, public.visits, public.records, public.app_settings
   from anon, authenticated;
+
+-- 예전 버전 함수 정리 (인자가 바뀐 함수)
+drop function if exists public.signup(text, text, text, text, int, text);
+drop function if exists public.save_attempt(uuid, jsonb, text);
 
 -- ---------- 내부 함수 ----------
 create or replace function public._uid(p_token uuid)
@@ -107,11 +117,22 @@ returns json language sql security definer set search_path = public as $$
 $$;
 
 -- ---------- 회원가입 / 로그인 ----------
+-- 가입 코드가 설정돼 있는지 (로그인 화면에서 확인)
+create or replace function public.signup_info()
+returns json language sql security definer set search_path = public as $$
+  select json_build_object('code_required', exists (select 1 from app_settings where key = 'signup_code'));
+$$;
+
 create or replace function public.signup(p_username text, p_password text, p_name text,
-                                         p_campus text, p_class int, p_ua text default null)
+                                         p_campus text, p_class int, p_ua text default null,
+                                         p_code text default null)
 returns json language plpgsql security definer set search_path = public, extensions as $$
-declare v uuid; t uuid;
+declare v uuid; t uuid; code text;
 begin
+  select value into code from app_settings where key = 'signup_code';
+  if code is not null and coalesce(trim(p_code), '') <> code then
+    raise exception '가입 코드가 올바르지 않습니다. 운영진에게 받은 코드를 입력해 주세요.';
+  end if;
   p_username := lower(trim(p_username));
   p_name := trim(p_name);
   if p_username !~ '^[a-z0-9_]{4,20}$' then
@@ -195,6 +216,19 @@ begin
   update users set pw_hash = crypt(p_new, gen_salt('bf')) where id = v;
 end $$;
 
+create or replace function public.delete_account(p_token uuid, p_password text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare v uuid := _uid(p_token);
+begin
+  if not exists (select 1 from users where id = v and pw_hash = crypt(p_password, pw_hash)) then
+    raise exception '비밀번호가 올바르지 않습니다.';
+  end if;
+  if exists (select 1 from users where id = v and is_admin) then
+    raise exception '관리자 계정은 탈퇴할 수 없습니다.';
+  end if;
+  delete from users where id = v;   -- 기록·접속·세션은 함께 삭제됨
+end $$;
+
 -- ---------- 접속 시간 ----------
 -- 사이트를 보고 있는 동안 1분마다 호출 (한 번에 최대 120초만 인정)
 create or replace function public.heartbeat(p_token uuid, p_seconds int)
@@ -209,7 +243,9 @@ end $$;
 
 -- ---------- 응시 기록 ----------
 -- p_sections: [{name, count, time, used, answers:[...], times:[...]}, ...]
-create or replace function public.save_attempt(p_token uuid, p_sections jsonb, p_source text default null)
+-- p_external: 시험모드(북마크)처럼 사이트 밖에서 푼 기록이면 사용 시간을 접속 시간에도 더한다
+create or replace function public.save_attempt(p_token uuid, p_sections jsonb, p_source text default null,
+                                               p_external boolean default false)
 returns json language plpgsql security definer set search_path = public as $$
 declare
   v uuid := _uid(p_token);
@@ -237,6 +273,11 @@ begin
     returning id into rid;
     saved := saved || jsonb_build_object('id', rid, 'section', s->>'name');
   end loop;
+  if p_external then
+    insert into visits (user_id, day, seconds)
+    select v, (now() at time zone 'Asia/Seoul')::date, coalesce(sum(used_sec), 0) from records where attempt_id = aid
+    on conflict (user_id, day) do update set seconds = visits.seconds + excluded.seconds;
+  end if;
   return json_build_object('attempt_id', aid, 'records', saved);
 end $$;
 
@@ -336,16 +377,48 @@ begin
   delete from sessions where user_id = p_user;
 end $$;
 
+create or replace function public.admin_settings(p_token uuid)
+returns json language plpgsql security definer set search_path = public as $$
+begin
+  perform _admin(p_token);
+  return json_build_object('signup_code', (select value from app_settings where key = 'signup_code'));
+end $$;
+
+-- 빈 값이면 가입 코드 없이 누구나 가입
+create or replace function public.admin_set_signup_code(p_token uuid, p_code text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform _admin(p_token);
+  if coalesce(trim(p_code), '') = '' then
+    delete from app_settings where key = 'signup_code';
+  else
+    insert into app_settings (key, value) values ('signup_code', trim(p_code))
+    on conflict (key) do update set value = excluded.value;
+  end if;
+end $$;
+
+create or replace function public.admin_delete_user(p_token uuid, p_user uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform _admin(p_token);
+  if exists (select 1 from users where id = p_user and is_admin) then
+    raise exception '관리자 계정은 삭제할 수 없습니다.';
+  end if;
+  delete from users where id = p_user;
+end $$;
+
 -- ---------- 실행 권한 ----------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
-  public.signup(text, text, text, text, int, text),
+  public.signup_info(),
+  public.signup(text, text, text, text, int, text, text),
+  public.delete_account(uuid, text),
   public.login(text, text, text),
   public.me(uuid),
   public.logout(uuid),
   public.change_password(uuid, text, text),
   public.heartbeat(uuid, int),
-  public.save_attempt(uuid, jsonb, text),
+  public.save_attempt(uuid, jsonb, text, boolean),
   public.grade_record(uuid, uuid, text),
   public.delete_attempt(uuid, uuid),
   public.my_data(uuid),
@@ -353,5 +426,8 @@ grant execute on function
   public.admin_records(uuid),
   public.admin_user_detail(uuid, uuid),
   public.admin_logs(uuid, int),
-  public.admin_reset_password(uuid, uuid, text)
+  public.admin_reset_password(uuid, uuid, text),
+  public.admin_settings(uuid),
+  public.admin_set_signup_code(uuid, text),
+  public.admin_delete_user(uuid, uuid)
 to anon, authenticated;

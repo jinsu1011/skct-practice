@@ -323,6 +323,26 @@ input, textarea { font: inherit; color: inherit; }
 
 .user-chip { align-self: center; margin-right: 4px; font-size: 14px; font-weight: 500; white-space: nowrap; }
 
+/* 불러오는 중 */
+.loading { flex: 1; display: flex; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 15px; }
+.spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid #e3e3e6; border-top-color: var(--red); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.form-hint { font-size: 12.5px; color: var(--muted); text-align: center; }
+.auth-form .agree { flex-direction: row; align-items: flex-start; gap: 8px; font-weight: 400; font-size: 13.5px; line-height: 1.5; }
+.auth-form .agree input { width: 17px; height: 17px; margin-top: 1px; padding: 0; accent-color: var(--red); flex: none; }
+.link { border: 0; background: none; padding: 0; color: var(--muted); text-decoration: underline; font-size: inherit; }
+.link:hover { color: var(--ink); }
+
+.site-foot { padding: 22px 16px 28px; text-align: center; font-size: 12.5px; color: var(--muted); }
+.site-foot span { margin: 0 4px; }
+.mobile-note { display: none; margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; background: #fff7e6; color: #8a5300; font-size: 13.5px; line-height: 1.5; }
+
+.setting-row { display: flex; gap: 8px; max-width: 460px; }
+.setting-row .text-input { height: 42px; }
+.setting-state { margin-top: 10px; font-size: 14px; }
+.admin-bar.no-filter select, .admin-bar.no-filter input { display: none; }
+
 /* ---------- 시험모드 북마크 안내 ---------- */
 .bm-box { margin-top: 16px; padding: 18px 20px; border-radius: 10px; background: #fafafb; border: 1px solid var(--line); font-size: 14px; line-height: 1.7; }
 .bm-box h3 { font-size: 15.5px; margin-bottom: 6px; }
@@ -444,6 +464,10 @@ kbd { padding: 1px 6px; border: 1px solid #ccc; border-bottom-width: 2px; border
   .tl-time { font-size: 28px; }
   .topbar { padding: 0 16px; }
   .user-chip { display: none; }
+  .mobile-note { display: block; }
+  #screen-setup .topbar { height: auto; min-height: 72px; padding: 10px 16px; grid-template-columns: auto 1fr; }
+  #screen-setup .tb-center { display: none; }
+  #screen-setup .tb-right { flex-wrap: wrap; }
   .dash-grid { grid-template-columns: 1fr; }
 }
 
@@ -451,3 +475,5 @@ kbd { padding: 1px 6px; border: 1px solid #ccc; border-bottom-width: 2px; border
   .topbar, .result-actions, .dash-actions, .hint { display: none !important; }
   .r-card { break-inside: avoid; }
 }
+
+#screen-login .site-foot { background: var(--soft); }

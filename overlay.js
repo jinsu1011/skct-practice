@@ -9,7 +9,7 @@
   }
 
   const BASE = new URL('.', document.currentScript.src).href;
-  const VERSION = '7';
+  const VERSION = '10';
   const SECTIONS = ['언어이해', '자료해석', '창의수리', '언어추리', '수열추리'];
   const SAMPLE_SEC = 60;
   const pageUrl = location.href;
@@ -206,7 +206,8 @@
   }
 
   // ---------- 상태 ----------
-  const S = { phase: 'setup', sec: null, q: 0, answers: [], times: [], qStart: 0, sampleAnswer: null, busy: false, result: null };
+  const S = { phase: 'setup', sec: null, q: 0, answers: [], times: [], qStart: 0, sampleAnswer: null, busy: false, result: null, saved: true };
+  const unsaved = () => S.phase === 'end' && !S.saved;
   const T = { total: 0, left: 0, end: 0, onDone: null, paused: false, warn: false };
   let countdown = null;
 
@@ -292,6 +293,7 @@
     try { localStorage.setItem('skct-overlay', JSON.stringify({ section: sec, count, time, sample })); } catch { /* 저장 불가 */ }
 
     S.sec = { name: sec, count, time };
+    $('#o-save').textContent = '저장하고 채점하기';
     S.answers = Array(count).fill(null);
     S.times = Array(count).fill(0);
     ensureFrame();
@@ -382,9 +384,11 @@
       await modal({ title: '시간 종료', body: '<p>제한 시간이 끝나 답안이 자동으로 제출되었습니다.</p>', buttons: [{ label: '확인', value: true, primary: true }] });
     }
     const times = S.times.map((t) => Math.round(t));
+    S.saved = false;
     S.result = {
       date: new Date().toISOString(),
       source: pageUrl,
+      external: true,
       sections: [{
         name: S.sec.name, count: S.sec.count, time: S.sec.time,
         used: Math.min(times.reduce((a, b) => a + b, 0), S.sec.time * 60), answers: S.answers, times,
@@ -398,7 +402,18 @@
     showLayer('end');
   }
 
+  // 저장하지 않은 기록을 버리기 전에 확인
+  async function confirmDiscard() {
+    if (!unsaved()) return true;
+    return modal({
+      title: '저장하지 않은 기록',
+      body: '<p>방금 푼 기록을 아직 저장하지 않았습니다.</p><p class="red">저장하지 않고 닫으면 기록이 사라집니다.</p>',
+      buttons: [{ label: '취소', value: false }, { label: '저장하지 않고 닫기', value: true, primary: true }],
+    });
+  }
+
   async function quit() {
+    if (!(await confirmDiscard())) return;
     if (S.phase === 'sample' || S.phase === 'test') {
       const ok = await modal({
         title: '시험모드 종료',
@@ -412,12 +427,22 @@
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     host.remove();
     document.documentElement.style.overflow = prevOverflow;
+    window.removeEventListener('beforeunload', onLeave);
+  }
+
+  // 시험 중이거나 저장하지 않은 기록이 있으면 페이지를 떠나기 전에 브라우저가 확인
+  function onLeave(e) {
+    if (S.phase === 'sample' || S.phase === 'test' || unsaved()) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
   }
 
   function show() {
     if (!host.isConnected) {
       document.documentElement.append(host);
       document.documentElement.style.overflow = 'hidden';
+      window.addEventListener('beforeunload', onLeave);
     }
     if (S.phase === 'setup') showLayer('setup');
   }
@@ -428,10 +453,21 @@
   $('#o-close2').onclick = quit;
   $('#btn-quit').onclick = quit;
   $('#btn-next').onclick = next;
-  $('#o-again').onclick = () => { S.phase = 'setup'; showLayer('setup'); };
+  $('#o-again').onclick = async () => {
+    if (!(await confirmDiscard())) return;
+    S.phase = 'setup';
+    S.saved = true;
+    showLayer('setup');
+  };
   $('#o-save').onclick = () => {
-    window.open(`${BASE}#import=${encodeURIComponent(JSON.stringify(S.result))}`, '_blank');
-    toast('새 탭에서 SKCT 연습 사이트가 열립니다.');
+    const tab = window.open(`${BASE}#import=${encodeURIComponent(JSON.stringify(S.result))}`, '_blank');
+    if (!tab) {
+      toast('팝업이 차단되었습니다. 주소창 오른쪽에서 팝업을 허용한 뒤 다시 눌러 주세요.');
+      return;
+    }
+    S.saved = true;
+    $('#o-save').textContent = '저장 완료 ✓';
+    toast('새 탭에서 SKCT 연습 사이트가 열리고 기록이 저장됩니다.');
   };
   $('#o-copy').onclick = async () => {
     const s = S.result.sections[0];
@@ -492,7 +528,11 @@
     window.Sketch?.setTool(b.dataset.tool);
   });
   // 시험모드 안에서 누른 키가 원래 페이지 단축키로 새지 않게
-  host.addEventListener('keydown', (e) => e.stopPropagation());
+  host.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape' && modalResolve && $('#modal-btns').children.length > 1) closeModal(false);
+  });
+  window.addEventListener('beforeunload', onLeave);
 
   // 계산기 · 그림판 · 유형 예시 문항은 사이트의 스크립트를 그대로 사용
   Promise.all(['js/samples.js', 'js/calc.js', 'js/sketch.js'].map(loadScript))

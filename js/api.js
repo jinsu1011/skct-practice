@@ -40,8 +40,10 @@ window.Api = (() => {
   const authed = (fn, args = {}) => rpc(fn, { p_token: token, ...args });
   const ua = () => navigator.userAgent.slice(0, 300);
 
-  async function signup({ username, password, name, campus, classNo }) {
-    const r = await rpc('signup', { p_username: username, p_password: password, p_name: name, p_campus: campus, p_class: classNo, p_ua: ua() });
+  async function signup({ username, password, name, campus, classNo, code }) {
+    const args = { p_username: username, p_password: password, p_name: name, p_campus: campus, p_class: classNo, p_ua: ua() };
+    if (code) args.p_code = code;
+    const r = await rpc('signup', args);
     setToken(r.token);
     return r.user;
   }
@@ -66,7 +68,13 @@ window.Api = (() => {
     me: () => authed('me'),
     changePassword: (oldPw, newPw) => authed('change_password', { p_old: oldPw, p_new: newPw }),
     heartbeat: (sec) => authed('heartbeat', { p_seconds: sec }),
-    saveAttempt: (sections, source) => authed('save_attempt', { p_sections: sections, p_source: source || null }),
+    saveAttempt: (sections, source, external) => authed('save_attempt', {
+      p_sections: sections,
+      p_source: source || null,
+      ...(external ? { p_external: true } : {}),
+    }),
+    signupInfo: () => rpc('signup_info').catch(() => ({ code_required: false })),
+    deleteAccount: (password) => authed('delete_account', { p_password: password }),
     grade: (id, answerKey) => authed('grade_record', { p_id: id, p_key: answerKey }),
     deleteAttempt: (attemptId) => authed('delete_attempt', { p_attempt: attemptId }),
     myData: () => authed('my_data'),
@@ -75,5 +83,8 @@ window.Api = (() => {
     adminUserDetail: (userId) => authed('admin_user_detail', { p_user: userId }),
     adminLogs: (limit = 300) => authed('admin_logs', { p_limit: limit }),
     adminResetPassword: (userId, pw) => authed('admin_reset_password', { p_user: userId, p_new: pw }),
+    adminSettings: () => authed('admin_settings'),
+    adminSetSignupCode: (code) => authed('admin_set_signup_code', { p_code: code }),
+    adminDeleteUser: (userId) => authed('admin_delete_user', { p_user: userId }),
   };
 })();

@@ -31,6 +31,14 @@
     my: null,           // 내 학습 현황 데이터
   };
 
+  // 공용 PC에서 다른 사람의 지난 답안·미저장 기록이 섞이지 않도록 주인(owner)을 확인
+  const mine = (r) => !!r && (!r.owner || !Account.user || r.owner === Account.user.id);
+  const myLastResult = () => {
+    const r = store.get('skct-last-result');
+    return mine(r) ? r : null;
+  };
+  const refreshLastButton = () => { $('#btn-last').hidden = !myLastResult(); };
+
   const saveSettings = () => store.set('skct-settings', { mode: S.mode, url: S.url, sections: S.sections });
   const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : lo));
   const normalizeUrl = (u) => {
@@ -124,7 +132,7 @@
     setProgress(0, 0);
     $('#exam-timer').classList.remove('warn', 'paused');
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    $('#btn-last').hidden = !store.get('skct-last-result');
+    refreshLastButton();
     showScreen('setup');
   }
 
@@ -246,7 +254,7 @@
   });
 
   $('#btn-last').addEventListener('click', () => {
-    const last = store.get('skct-last-result');
+    const last = myLastResult();
     if (last) showResult(last);
   });
 
@@ -464,6 +472,7 @@
     stopCountdown();
     const result = {
       date: new Date().toISOString(),
+      owner: Account.user?.id || null,
       source: sourceLabel(),
       sections: S.plan.map((s, i) => ({
         name: s.name,
@@ -516,8 +525,10 @@
     const r = await Api.saveAttempt(
       result.sections.map(({ name, count, time, used, answers, times }) => ({ name, count, time, used: used || 0, answers, times })),
       result.source,
+      result.external,
     );
     r.records.forEach((x, i) => { result.sections[i].id = x.id; });
+    result.owner = Account.user.id;
     result.attemptId = r.attempt_id;
     await Promise.all(result.sections.filter((x) => x.key).map((x) => Api.grade(x.id, x.key)));
     const last = store.get('skct-last-result');
@@ -559,6 +570,7 @@
     if (!list.length || !Account.online) return;
     const left = [];
     for (const r of list) {
+      if (!mine(r)) { left.push(r); continue; }
       try { await upload(r); } catch { left.push(r); }
     }
     store.set(PENDING, left);
@@ -567,7 +579,7 @@
 
   $('#btn-end').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    showResult(S.result || store.get('skct-last-result'));
+    showResult(S.result || myLastResult());
   });
 
   // ---------- ⑤ 내 답안 ----------
@@ -671,7 +683,7 @@
 
   function goSetup() {
     S.phase = 'setup';
-    $('#btn-last').hidden = !store.get('skct-last-result');
+    refreshLastButton();
     showScreen('setup');
   }
 
@@ -751,6 +763,24 @@
     }
   });
 
+  $('#btn-delete-account').addEventListener('click', async () => {
+    const pw = await modal({
+      title: '회원 탈퇴',
+      body: `<p>탈퇴하면 계정과 <b>모든 응시·채점 기록이 즉시 삭제</b>되며 되돌릴 수 없습니다.</p>
+             <label class="field">비밀번호 확인<input type="password" id="del-pw" class="text-input" autocomplete="current-password"></label>`,
+      buttons: [{ label: '취소', value: null }, { label: '탈퇴하기', value: () => $('#del-pw').value, primary: true }],
+    });
+    if (!pw) return;
+    try {
+      await Api.deleteAccount(pw);
+      store.remove('skct-last-result');
+      store.remove(PENDING);
+      Account.requireLogin('탈퇴가 완료되었습니다.');
+    } catch (err) {
+      if (!Account.handleError(err)) alertModal('탈퇴 실패', `<p>${esc(err.message)}</p>`);
+    }
+  });
+
   // 상단 메뉴 등 data-go 버튼
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-go]');
@@ -782,7 +812,12 @@
           key: '',
         }));
       if (!sections.length) throw new Error();
-      return { date: typeof r.date === 'string' ? r.date : new Date().toISOString(), source: String(r.source || '').slice(0, 300), sections };
+      return {
+        date: typeof r.date === 'string' ? r.date : new Date().toISOString(),
+        source: String(r.source || '').slice(0, 300),
+        external: true,
+        sections,
+      };
     } catch {
       toast('가져온 기록을 읽지 못했습니다.');
       return null;
@@ -823,10 +858,10 @@
   Admin.init();
   renderRows();
   setMode(S.mode);
-  $('#btn-last').hidden = !store.get('skct-last-result');
+  refreshLastButton();
 
   Account.init(async () => {
-    $('#btn-last').hidden = !store.get('skct-last-result');
+    refreshLastButton();
     await flushPending();
     if (imported) {
       const r = imported;
